@@ -7,4 +7,5 @@ edition = "2021"
 cardano-immutabledb-reader = { workspace = true }
 clap = { version = "4.5.4", default-features = false, features = ["derive", "help", "usage", "std"] }
 pallas-traverse = "0.25.0"
+parse-size = "1.0.0"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

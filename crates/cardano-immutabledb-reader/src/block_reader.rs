@@ -5,6 +5,7 @@ use std::{
 
 use crate::dir_chunk_numbers;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockReaderConfig {
     pub worker_read_buffer_bytes_size: usize,
     pub read_worker_count: usize,

@@ -8,10 +8,22 @@ use cardano_immutabledb_reader::block_reader::{BlockReader, BlockReaderConfig};
 use clap::Parser;
 use pallas_traverse::MultiEraBlock;
 
+fn parse_byte_size(s: &str) -> Result<u64, String> {
+    parse_size::parse_size(s).map_err(|e| e.to_string())
+}
+
 #[derive(Parser)]
 struct Cli {
     #[clap(short, long)]
     snapshot_immutabledb_path: PathBuf,
+    #[clap(long, default_value_t = 2)]
+    read_worker_count: usize,
+    #[clap(long, default_value_t = 2)]
+    processing_worker_count: usize,
+    #[clap(long, value_parser = parse_byte_size, default_value = "128MiB")]
+    read_worker_buffer_size: u64,
+    #[clap(long, value_parser = parse_byte_size, default_value = "8MiB")]
+    processing_worker_buffer_size: u64,
 }
 
 #[tokio::main]
@@ -22,10 +34,10 @@ async fn main() {
     let block_number = Arc::new(AtomicU64::new(0));
 
     let config = BlockReaderConfig {
-        worker_read_buffer_bytes_size: 128 * 1024 * 1024,
-        read_worker_count: 4,
-        processing_worker_count: 4,
-        worker_processing_buffer_bytes_size: 8 * 1024 * 1024,
+        worker_read_buffer_bytes_size: cli_args.read_worker_buffer_size as usize,
+        read_worker_count: cli_args.read_worker_count,
+        processing_worker_count: cli_args.processing_worker_count,
+        worker_processing_buffer_bytes_size: cli_args.processing_worker_buffer_size as usize,
     };
 
     let mut block_reader = BlockReader::new(cli_args.snapshot_immutabledb_path, &config, {
