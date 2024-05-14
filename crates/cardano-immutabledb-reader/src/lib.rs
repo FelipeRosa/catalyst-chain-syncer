@@ -1,3 +1,5 @@
+pub mod block_reader;
+
 use std::{collections::BTreeSet, error::Error, ffi::OsStr, path::Path};
 
 use binary_layout::binary_layout;
@@ -117,6 +119,7 @@ async fn read_chunk_file(
     data_buffer: &mut Vec<u8>,
 ) -> Result<ReadChunkFile, Box<dyn Error>> {
     let mut chunk_file = tokio::fs::File::open(path).await?;
+    data_buffer.clear();
     chunk_file.read_to_end(data_buffer).await?;
 
     let secondary_index = SecondaryIndex::from_file(secondary_index_path).await?;
@@ -127,8 +130,6 @@ async fn read_chunk_file(
         counter: 0,
     })
 }
-
-pub struct ChunkReader {}
 
 #[cfg(test)]
 mod test {

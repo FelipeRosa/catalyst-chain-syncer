@@ -1,4 +1,12 @@
 [workspace]
 resolver = "2"
 
-members = ["crates/cardano-immutabledb-reader"]
+members = [
+    "crates/cardano-immutabledb-reader",
+    "crates/cardano-immutabledb-reader/testbench"
+]
+
+[workspace.dependencies]
+cardano-immutabledb-reader = { path = "crates/cardano-immutabledb-reader" }
+
+tokio = { version = "1.37.0", default-features = false }

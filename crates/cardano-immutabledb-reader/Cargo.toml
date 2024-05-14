@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 binary-layout = "4.0.2"
 pallas-traverse = "0.25.0"
-tokio = { version = "1.37.0", features = ["fs", "io-util", "sync"] }
+tokio = { workspace = true, features = ["fs", "io-util", "sync", "rt"] }
 
 [dev-dependencies]
-tokio = { version = "1.37.0", features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
