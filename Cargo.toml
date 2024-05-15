@@ -2,11 +2,18 @@
 resolver = "2"
 
 members = [
+    "bin/catalyst-chain-syncer",
     "crates/cardano-immutabledb-reader",
-    "crates/cardano-immutabledb-reader/testbench"
+    "crates/cardano-immutabledb-reader/testbench",
+    "crates/catalyst-chaindata-writer"
 ]
 
 [workspace.dependencies]
 cardano-immutabledb-reader = { path = "crates/cardano-immutabledb-reader" }
+catalyst-chaindata-writer = { path = "crates/catalyst-chaindata-writer" }
 
 tokio = { version = "1.37.0", default-features = false }
+
+[profile.release]
+# Should be on just for profiling
+debug = true
