@@ -74,74 +74,66 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let processed_byte_count = processed_byte_count.clone();
 
         move |block_bytes| {
-            let latest_block_number = latest_block_number.clone();
-            let latest_slot_number = latest_slot_number.clone();
-            let read_byte_count = read_byte_count.clone();
-            let processed_byte_count = processed_byte_count.clone();
-            let writer_handle = writer_handle.clone();
+            read_byte_count.fetch_add(block_bytes.len() as u64, Acquire);
 
-            async move {
-                read_byte_count.fetch_add(block_bytes.len() as u64, Acquire);
+            let mut w_byte_count = 0;
 
-                let mut w_byte_count = 0;
+            let block = MultiEraBlock::decode(&block_bytes).expect("Decode");
 
-                let block = MultiEraBlock::decode(&block_bytes).expect("Decode");
-
-                match cardano_block::CardanoBlock::from_block(&block, cli.network) {
-                    Ok(d) => {
-                        let block_write_data = WriteData::Block(d);
-                        w_byte_count += block_write_data.data_size();
-                        writer_handle.write(block_write_data).await.expect("Write");
-                    }
-                    Err(e) => eprintln!("Failed to parse block {e:?}"),
+            match cardano_block::CardanoBlock::from_block(&block, cli.network) {
+                Ok(d) => {
+                    let block_write_data = WriteData::Block(d);
+                    w_byte_count += block_write_data.data_size();
+                    writer_handle
+                        .blocking_write(block_write_data)
+                        .expect("Write");
                 }
-
-                match cardano_transaction::CardanoTransaction::many_from_block(&block, cli.network)
-                {
-                    Ok(tx_data) => {
-                        for tx in tx_data {
-                            let tx_write_data = WriteData::Transaction(tx);
-                            w_byte_count += tx_write_data.data_size();
-
-                            writer_handle.write(tx_write_data).await.expect("Write");
-                        }
-                    }
-                    Err(e) => eprintln!("Failed to parse block transactions {e:?}"),
-                }
-
-                let txs = block.txs();
-
-                match cardano_txo::CardanoTxo::from_transactions(&txs) {
-                    Ok(txo_data) => {
-                        for txo in txo_data {
-                            let txo_write_data = WriteData::Txo(txo);
-                            w_byte_count += txo_write_data.data_size();
-
-                            writer_handle.write(txo_write_data).await.expect("Write");
-                        }
-                    }
-                    Err(e) => eprintln!("Failed to parse transactions TXOs {e:?}"),
-                }
-
-                match cardano_spent_txo::CardanoSpentTxo::from_transactions(&txs) {
-                    Ok(spent_txo_data) => {
-                        for spent_txo in spent_txo_data {
-                            let spent_txo_write_data = WriteData::SpentTxo(spent_txo);
-                            w_byte_count += spent_txo_write_data.data_size();
-
-                            writer_handle
-                                .write(spent_txo_write_data)
-                                .await
-                                .expect("Write");
-                        }
-                    }
-                    Err(e) => eprintln!("Failed to parse transactions spent TXOs {e:?}"),
-                }
-
-                latest_block_number.fetch_max(block.number(), Acquire);
-                latest_slot_number.fetch_max(block.slot(), Acquire);
-                processed_byte_count.fetch_add(w_byte_count as u64, Acquire);
+                Err(e) => eprintln!("Failed to parse block {e:?}"),
             }
+
+            match cardano_transaction::CardanoTransaction::many_from_block(&block, cli.network) {
+                Ok(tx_data) => {
+                    for tx in tx_data {
+                        let tx_write_data = WriteData::Transaction(tx);
+                        w_byte_count += tx_write_data.data_size();
+
+                        writer_handle.blocking_write(tx_write_data).expect("Write");
+                    }
+                }
+                Err(e) => eprintln!("Failed to parse block transactions {e:?}"),
+            }
+
+            let txs = block.txs();
+
+            match cardano_txo::CardanoTxo::from_transactions(&txs) {
+                Ok(txo_data) => {
+                    for txo in txo_data {
+                        let txo_write_data = WriteData::Txo(txo);
+                        w_byte_count += txo_write_data.data_size();
+
+                        writer_handle.blocking_write(txo_write_data).expect("Write");
+                    }
+                }
+                Err(e) => eprintln!("Failed to parse transactions TXOs {e:?}"),
+            }
+
+            match cardano_spent_txo::CardanoSpentTxo::from_transactions(&txs) {
+                Ok(spent_txo_data) => {
+                    for spent_txo in spent_txo_data {
+                        let spent_txo_write_data = WriteData::SpentTxo(spent_txo);
+                        w_byte_count += spent_txo_write_data.data_size();
+
+                        writer_handle
+                            .blocking_write(spent_txo_write_data)
+                            .expect("Write");
+                    }
+                }
+                Err(e) => eprintln!("Failed to parse transactions spent TXOs {e:?}"),
+            }
+
+            latest_block_number.fetch_max(block.number(), Acquire);
+            latest_slot_number.fetch_max(block.slot(), Acquire);
+            processed_byte_count.fetch_add(w_byte_count as u64, Acquire);
         }
     })
     .await?;

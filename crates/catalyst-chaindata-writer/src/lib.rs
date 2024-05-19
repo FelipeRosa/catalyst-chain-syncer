@@ -61,12 +61,14 @@ pub struct ChainDataWriterHandle {
 }
 
 impl ChainDataWriterHandle {
-    pub async fn write(&self, d: WriteData) -> Result<()> {
-        let permit = self
-            .clone()
-            .write_semaphore
-            .acquire_many_owned(d.data_size() as u32)
-            .await?;
+    pub fn blocking_write(&self, d: WriteData) -> Result<()> {
+        let rt = tokio::runtime::Handle::current();
+
+        let permit = rt.block_on(
+            self.clone()
+                .write_semaphore
+                .acquire_many_owned(d.data_size() as u32),
+        )?;
 
         self.write_data_tx.send((permit, d))?;
 

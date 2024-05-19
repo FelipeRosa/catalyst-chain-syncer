@@ -1,6 +1,9 @@
 use std::{
     path::PathBuf,
-    sync::{atomic::AtomicU64, Arc},
+    sync::{
+        atomic::{AtomicU64, Ordering::Acquire},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -42,16 +45,10 @@ async fn main() {
         let byte_count = byte_count.clone();
 
         move |block_data| {
-            let block_number = block_number.clone();
-            let byte_count = byte_count.clone();
-            async move {
-                let decoded_data = MultiEraBlock::decode(&block_data).expect("Decoded");
-                byte_count.fetch_add(
-                    block_data.len() as u64,
-                    std::sync::atomic::Ordering::Acquire,
-                );
-                block_number.fetch_max(decoded_data.number(), std::sync::atomic::Ordering::Acquire);
-            }
+            let decoded_data = MultiEraBlock::decode(&block_data).expect("Decoded");
+
+            byte_count.fetch_add(block_data.len() as u64, Acquire);
+            block_number.fetch_max(decoded_data.number(), Acquire);
         }
     })
     .await
@@ -66,7 +63,7 @@ async fn main() {
             }
 
             _ = ticker.tick() => {
-                println!("BLOCK NUMBER {} | {} MB/s", block_number.load(std::sync::atomic::Ordering::Acquire), byte_count.swap(0, std::sync::atomic::Ordering::Acquire) / 1024 / 1024);
+                println!("BLOCK NUMBER {} | {} MB/s", block_number.load(Acquire), byte_count.swap(0, std::sync::atomic::Ordering::Acquire) / 1024 / 1024);
             }
         }
     }
