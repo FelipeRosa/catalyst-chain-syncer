@@ -1,7 +1,9 @@
 use std::{
-    collections::BTreeSet, error::Error, future::Future, os::unix::fs::MetadataExt, path::Path,
-    sync::Arc,
+    collections::BTreeSet, future::Future, os::unix::fs::MetadataExt, path::Path, sync::Arc,
 };
+
+use tokio::{sync::Semaphore, task::JoinError};
+use tokio_util::sync::CancellationToken;
 
 use crate::dir_chunk_numbers;
 
@@ -10,7 +12,6 @@ pub struct BlockReaderConfig {
     pub worker_read_buffer_bytes_size: usize,
     pub read_worker_count: usize,
     pub processing_worker_count: usize,
-    pub worker_processing_buffer_bytes_size: usize,
 }
 
 impl Default for BlockReaderConfig {
@@ -19,24 +20,25 @@ impl Default for BlockReaderConfig {
             worker_read_buffer_bytes_size: 8 * 1024 * 1024, // 8MB
             read_worker_count: 2,
             processing_worker_count: 2,
-            worker_processing_buffer_bytes_size: 8 * 1024 * 1024, // 8MB
         }
     }
 }
 
 pub struct BlockReader {
+    cancellation_token: CancellationToken,
     chunk_reader_tasks_joinset: tokio::task::JoinSet<()>,
 }
 
 impl BlockReader {
-    pub async fn new<P, F>(
+    pub async fn new<P, F, Fut>(
         immutabledb_path: P,
         config: &BlockReaderConfig,
         on_block_callback: F,
-    ) -> Result<Self, Box<dyn Error>>
+    ) -> anyhow::Result<Self>
     where
         P: AsRef<Path>,
-        F: Fn(&[u8]) + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+        F: (Fn(Vec<u8>) -> Fut) + Send + Sync + 'static,
     {
         let task_chunk_numbers = {
             let mut split_chunk_numbers = vec![(0u64, BTreeSet::new()); config.read_worker_count];
@@ -65,6 +67,8 @@ impl BlockReader {
         };
 
         let shared_on_block_callback = Arc::new(on_block_callback);
+        let cancellation_token = CancellationToken::new();
+        let processing_semaphore = Arc::new(Semaphore::new(128 * 1024 * 1024));
 
         let mut chunk_reader_tasks_joinset = tokio::task::JoinSet::new();
         for (_, chunk_numbers) in task_chunk_numbers {
@@ -74,21 +78,28 @@ impl BlockReader {
             chunk_reader_tasks_joinset.spawn(chunk_reader_task::start(
                 immutabledb_path.as_ref().to_path_buf(),
                 config.processing_worker_count,
-                config.worker_processing_buffer_bytes_size,
                 read_buffer,
                 chunk_numbers,
                 shared_on_block_callback.clone(),
+                processing_semaphore.clone(),
+                cancellation_token.child_token(),
             ));
         }
 
         Ok(Self {
+            cancellation_token,
             chunk_reader_tasks_joinset,
         })
+    }
+
+    pub async fn close(self) -> Result<(), JoinError> {
+        self.cancellation_token.cancel();
+        self.await
     }
 }
 
 impl Future for BlockReader {
-    type Output = Result<(), tokio::task::JoinError>;
+    type Output = Result<(), JoinError>;
 
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
@@ -107,46 +118,54 @@ impl Future for BlockReader {
 }
 
 mod chunk_reader_task {
-    use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
+    use std::{collections::BTreeSet, future::Future, path::PathBuf, sync::Arc};
 
-    use tokio::sync::mpsc;
+    use tokio::sync::{mpsc, Semaphore};
+    use tokio_util::sync::CancellationToken;
 
     use crate::read_chunk_file;
 
-    pub async fn start<F>(
+    pub async fn start<F, Fut>(
         immutabledb_path: PathBuf,
         processing_workers_count: usize,
-        processing_buffer_size: usize,
         mut read_buffer: Vec<u8>,
         mut chunk_numbers: BTreeSet<u32>,
         on_block_callback: Arc<F>,
+        processing_semaphore: Arc<Semaphore>,
+        cancellation_token: CancellationToken,
     ) where
-        F: Fn(&[u8]) + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send,
+        F: (Fn(Vec<u8>) -> Fut) + Send + Sync + 'static,
     {
-        let (prealloc_buffers_tx, mut prealloc_buffers_rx) = mpsc::unbounded_channel();
-
-        // Use 80KB for each block buffer
-        let n = processing_buffer_size / (80 * 1024);
-        for _ in 0..n {
-            prealloc_buffers_tx
-                .send(vec![0u8; 80 * 1024])
-                .expect("Sent");
-        }
-
         let mut processing_worker_txs = Vec::new();
         let mut processing_workers_joinset = tokio::task::JoinSet::new();
 
         for _ in 0..processing_workers_count {
-            let (processing_data_tx, mut processing_data_rx) = mpsc::unbounded_channel::<Vec<_>>();
+            let (processing_data_tx, mut processing_data_rx) =
+                mpsc::unbounded_channel::<(_, Vec<_>)>();
 
-            processing_workers_joinset.spawn_blocking({
+            processing_workers_joinset.spawn({
                 let worker_on_block_callback = on_block_callback.clone();
-                let worker_prealloc_buffers_tx = prealloc_buffers_tx.clone();
+                let cancellation_token = cancellation_token.clone();
 
-                move || {
-                    while let Some(block_data) = processing_data_rx.blocking_recv() {
-                        worker_on_block_callback(&block_data);
-                        worker_prealloc_buffers_tx.send(block_data).expect("Send");
+                async move {
+                    loop {
+                        tokio::select! {
+                            _ = cancellation_token.cancelled() => {
+                                break;
+                            }
+
+                            res = processing_data_rx.recv() => {
+                                match res {
+                                    Some((_permit, block_data)) => {
+                                        worker_on_block_callback(block_data).await;
+                                    }
+                                    None => {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -154,13 +173,12 @@ mod chunk_reader_task {
             processing_worker_txs.push(processing_data_tx);
         }
 
-        // Drop this since we've already passed references to it for the
-        // processing worker threads.
+        // Drop these since we've already moved clones to the processing worker threads.
         drop(on_block_callback);
-        drop(prealloc_buffers_tx);
+        drop(cancellation_token);
 
         let mut i = 0;
-        while let Some(chunk_number) = chunk_numbers.pop_first() {
+        'main_loop: while let Some(chunk_number) = chunk_numbers.pop_first() {
             let chunk_number_str = format!("{chunk_number:05}");
 
             let chunk_file_path = immutabledb_path.join(format!("{chunk_number_str}.chunk"));
@@ -173,16 +191,16 @@ mod chunk_reader_task {
                     .expect("read_chunk_file");
 
             while let Some(block_data) = chunk_iter.next().await.expect("chunk_iter.next") {
-                let mut prealloc_buffer = prealloc_buffers_rx.recv().await.expect("Recv");
-                if prealloc_buffer.capacity() < block_data.len() {
-                    prealloc_buffer.resize(block_data.len(), 0);
-                }
+                let permit = processing_semaphore
+                    .clone()
+                    .acquire_many_owned(block_data.len() as u32);
 
-                prealloc_buffer.resize(block_data.len(), 0);
-                prealloc_buffer.copy_from_slice(block_data);
-
-                if processing_worker_txs[i].send(prealloc_buffer).is_err() {
-                    break;
+                // if any worker fails we stop (for now)
+                if processing_worker_txs[i]
+                    .send((permit, block_data.to_vec()))
+                    .is_err()
+                {
+                    break 'main_loop;
                 }
 
                 i = (i + 1) % processing_workers_count;
@@ -210,8 +228,12 @@ mod test {
         let config = BlockReaderConfig::default();
 
         let mut block_reader = BlockReader::new("tests_data", &config, move |block_data| {
-            let block = MultiEraBlock::decode(block_data).expect("Decoded");
-            let _ = block_numbers_tx.send(block.number());
+            let block_numbers_tx = block_numbers_tx.clone();
+
+            async move {
+                let block = MultiEraBlock::decode(&block_data).expect("Decoded");
+                let _ = block_numbers_tx.send(block.number());
+            }
         })
         .await
         .expect("Block reader started");

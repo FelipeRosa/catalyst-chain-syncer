@@ -22,8 +22,6 @@ struct Cli {
     processing_worker_count: usize,
     #[clap(long, value_parser = parse_byte_size, default_value = "128MiB")]
     read_worker_buffer_size: u64,
-    #[clap(long, value_parser = parse_byte_size, default_value = "8MiB")]
-    processing_worker_buffer_size: u64,
 }
 
 #[tokio::main]
@@ -37,7 +35,6 @@ async fn main() {
         worker_read_buffer_bytes_size: cli_args.read_worker_buffer_size as usize,
         read_worker_count: cli_args.read_worker_count,
         processing_worker_count: cli_args.processing_worker_count,
-        worker_processing_buffer_bytes_size: cli_args.processing_worker_buffer_size as usize,
     };
 
     let mut block_reader = BlockReader::new(cli_args.snapshot_immutabledb_path, &config, {
@@ -45,12 +42,16 @@ async fn main() {
         let byte_count = byte_count.clone();
 
         move |block_data| {
-            let decoded_data = MultiEraBlock::decode(block_data).expect("Decoded");
-            byte_count.fetch_add(
-                block_data.len() as u64,
-                std::sync::atomic::Ordering::Acquire,
-            );
-            block_number.fetch_max(decoded_data.number(), std::sync::atomic::Ordering::Acquire);
+            let block_number = block_number.clone();
+            let byte_count = byte_count.clone();
+            async move {
+                let decoded_data = MultiEraBlock::decode(&block_data).expect("Decoded");
+                byte_count.fetch_add(
+                    block_data.len() as u64,
+                    std::sync::atomic::Ordering::Acquire,
+                );
+                block_number.fetch_max(decoded_data.number(), std::sync::atomic::Ordering::Acquire);
+            }
         }
     })
     .await

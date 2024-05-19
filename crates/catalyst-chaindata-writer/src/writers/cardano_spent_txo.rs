@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use pallas_traverse::MultiEraTx;
 use tokio::task::JoinError;
 use tokio_postgres::{binary_copy::BinaryCopyInWriter, types::Type};
@@ -13,7 +11,7 @@ pub struct CardanoSpentTxo {
 }
 
 impl CardanoSpentTxo {
-    pub fn from_transactions(txs: &[MultiEraTx]) -> Result<Vec<Self>, Box<dyn Error>> {
+    pub fn from_transactions(txs: &[MultiEraTx]) -> anyhow::Result<Vec<Self>> {
         let data = txs
             .iter()
             .flat_map(|tx| {

@@ -1,4 +1,4 @@
-use std::{error::Error, future::Future};
+use std::future::Future;
 
 pub struct Connection {
     client: tokio_postgres::Client,
@@ -6,7 +6,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub async fn open(conn_string: &str) -> Result<Self, Box<dyn Error>> {
+    pub async fn open(conn_string: &str) -> anyhow::Result<Self> {
         let (client, conn) = tokio_postgres::connect(conn_string, tokio_postgres::NoTls).await?;
 
         let conn_task_handle = tokio::spawn(async move {

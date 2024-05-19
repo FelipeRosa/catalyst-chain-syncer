@@ -1,5 +1,4 @@
-use std::error::Error;
-
+use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use pallas_traverse::MultiEraBlock;
 use tokio::task::JoinError;
@@ -21,7 +20,7 @@ pub struct CardanoBlock {
 }
 
 impl CardanoBlock {
-    pub fn from_block(block: &MultiEraBlock, network: Network) -> Result<Self, Box<dyn Error>> {
+    pub fn from_block(block: &MultiEraBlock, network: Network) -> anyhow::Result<Self> {
         Ok(Self {
             block_no: block.number(),
             slot_no: block.slot(),
@@ -31,7 +30,7 @@ impl CardanoBlock {
                 block.wallclock(network.genesis_values()) as i64,
                 0,
             )
-            .ok_or_else(|| "Failed to parse DateTime from timestamp".to_string())?,
+            .ok_or_else(|| anyhow!("Failed to parse DateTime from timestamp"))?,
             block_hash: *block.hash(),
             previous_hash: block.header().previous_hash().as_ref().map(|h| **h),
         })

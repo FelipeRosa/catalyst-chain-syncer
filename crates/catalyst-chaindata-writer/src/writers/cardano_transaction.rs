@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use pallas_traverse::MultiEraBlock;
 use tokio::task::JoinError;
 use tokio_postgres::{binary_copy::BinaryCopyInWriter, types::Type};
@@ -15,10 +13,7 @@ pub struct CardanoTransaction {
 }
 
 impl CardanoTransaction {
-    pub fn many_from_block(
-        block: &MultiEraBlock,
-        network: Network,
-    ) -> Result<Vec<Self>, Box<dyn Error>> {
+    pub fn many_from_block(block: &MultiEraBlock, network: Network) -> anyhow::Result<Vec<Self>> {
         let data = block
             .txs()
             .into_iter()

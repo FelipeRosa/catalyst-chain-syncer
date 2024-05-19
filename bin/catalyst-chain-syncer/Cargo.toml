@@ -10,4 +10,4 @@ catalyst-chaindata-writer = { workspace = true }
 clap = { version = "4.5.4", default-features = false, features = ["derive", "help", "usage", "std"] }
 pallas-traverse = "0.25.0"
 parse-size = "1.0.0"
-tokio = { workspace = true, default-features = false, features = ["rt-multi-thread", "macros", "sync"] }
+tokio = { workspace = true, default-features = false, features = ["rt-multi-thread", "macros", "signal", "sync"] }

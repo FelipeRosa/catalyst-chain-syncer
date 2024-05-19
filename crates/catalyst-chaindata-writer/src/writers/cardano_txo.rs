@@ -1,5 +1,4 @@
-use std::error::Error;
-
+use anyhow::Result;
 use pallas_traverse::{MultiEraAsset, MultiEraPolicyAssets, MultiEraTx};
 use serde::Serialize;
 use tokio::task::JoinError;
@@ -7,16 +6,19 @@ use tokio_postgres::{binary_copy::BinaryCopyInWriter, types::Type};
 
 use crate::connection::Connection;
 
+use super::serde_size::serde_size;
+
 pub struct CardanoTxo {
-    transaction_hash: [u8; 32],
-    index: u32,
-    value: u64,
-    assets: serde_json::Value,
-    stake_credential: Option<[u8; 28]>,
+    pub transaction_hash: [u8; 32],
+    pub index: u32,
+    pub value: u64,
+    pub assets: serde_json::Value,
+    pub assets_size_estimate: usize,
+    pub stake_credential: Option<[u8; 28]>,
 }
 
 impl CardanoTxo {
-    pub fn from_transactions(txs: &[MultiEraTx]) -> Result<Vec<Self>, Box<dyn Error>> {
+    pub fn from_transactions(txs: &[MultiEraTx]) -> Result<Vec<Self>> {
         let data = txs
             .iter()
             .flat_map(|tx| {
@@ -29,18 +31,20 @@ impl CardanoTxo {
                         pallas_addresses::Address::Stake(stake_address) => Some(stake_address),
                     };
 
-                    Result::<_, Box<dyn Error>>::Ok(Self {
+                    let parsed_assets = parse_policy_assets(&tx_output.non_ada_assets());
+                    let assets_size_estimate = serde_size(&parsed_assets)?;
+
+                    Ok(Self {
                         transaction_hash: *tx.hash(),
                         index,
                         value: tx_output.lovelace_amount(),
-                        assets: serde_json::to_value(parse_policy_assets(
-                            &tx_output.non_ada_assets(),
-                        ))?,
+                        assets: serde_json::to_value(parsed_assets)?,
+                        assets_size_estimate,
                         stake_credential: stake_credential.map(|a| **a.payload().as_hash()),
                     })
                 })
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(data)
     }
@@ -63,7 +67,7 @@ impl Writer {
 impl super::Writer for Writer {
     type In = CardanoTxo;
 
-    async fn batch_copy(&self, data: &[Self::In]) -> anyhow::Result<()> {
+    async fn batch_copy(&self, data: &[Self::In]) -> Result<()> {
         let sink = self
             .conn
             .client()

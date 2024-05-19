@@ -1,11 +1,11 @@
 pub mod block_reader;
 
-use std::{collections::BTreeSet, error::Error, ffi::OsStr, path::Path};
+use std::{collections::BTreeSet, ffi::OsStr, path::Path};
 
 use binary_layout::binary_layout;
 use tokio::io::AsyncReadExt;
 
-pub async fn dir_chunk_numbers<P: AsRef<Path>>(path: P) -> Result<BTreeSet<u32>, Box<dyn Error>> {
+pub async fn dir_chunk_numbers<P: AsRef<Path>>(path: P) -> anyhow::Result<BTreeSet<u32>> {
     let mut dir = tokio::fs::read_dir(path).await?;
     let mut chunk_numbers = BTreeSet::new();
 
@@ -47,7 +47,7 @@ struct SecondaryIndex {
 }
 
 impl SecondaryIndex {
-    async fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn Error>> {
+    async fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let mut secondary_index_file = tokio::fs::File::open(path).await?;
 
         let mut entries = Vec::new();
@@ -60,7 +60,7 @@ impl SecondaryIndex {
                     break;
                 }
 
-                return Err(Box::new(err));
+                return Err(err.into());
             }
 
             let view = secondary_index_entry_layout::View::new(&entry_buf);
@@ -81,7 +81,7 @@ struct ReadChunkFile<'a> {
 }
 
 impl<'a> ReadChunkFile<'a> {
-    async fn next(&mut self) -> Result<Option<&[u8]>, Box<dyn Error>> {
+    async fn next(&mut self) -> anyhow::Result<Option<&[u8]>> {
         let next_counter = self.counter + 1;
 
         let (from, to) = match next_counter.cmp(&self.secondary_index.entries.len()) {
@@ -117,8 +117,9 @@ async fn read_chunk_file(
     path: impl AsRef<Path>,
     secondary_index_path: impl AsRef<Path>,
     data_buffer: &mut Vec<u8>,
-) -> Result<ReadChunkFile, Box<dyn Error>> {
+) -> anyhow::Result<ReadChunkFile> {
     let mut chunk_file = tokio::fs::File::open(path).await?;
+
     data_buffer.clear();
     chunk_file.read_to_end(data_buffer).await?;
 
