@@ -38,18 +38,23 @@ pub async fn create_indexes(conn_string: &str) -> Result<()> {
 
 pub enum WriteData {
     Block(CardanoBlock),
-    Transaction(CardanoTransaction),
-    Txo(CardanoTxo),
-    SpentTxo(CardanoSpentTxo),
+    ManyTransaction(Vec<CardanoTransaction>),
+    ManyTxo(Vec<CardanoTxo>),
+    ManySpentTxo(Vec<CardanoSpentTxo>),
 }
 
 impl WriteData {
     pub fn data_size(&self) -> usize {
         match self {
             WriteData::Block(b) => std::mem::size_of_val(b),
-            WriteData::Transaction(tx) => std::mem::size_of_val(tx),
-            WriteData::Txo(txo) => std::mem::size_of_val(txo) + txo.assets_size_estimate,
-            WriteData::SpentTxo(spent_txo) => std::mem::size_of_val(spent_txo),
+            WriteData::ManyTransaction(txs) => txs.iter().map(std::mem::size_of_val).sum(),
+            WriteData::ManyTxo(txos) => txos
+                .iter()
+                .map(|txo| std::mem::size_of_val(txo) + txo.assets_size_estimate)
+                .sum(),
+            WriteData::ManySpentTxo(spent_txos) => {
+                spent_txos.iter().map(std::mem::size_of_val).sum()
+            }
         }
     }
 }
@@ -61,14 +66,12 @@ pub struct ChainDataWriterHandle {
 }
 
 impl ChainDataWriterHandle {
-    pub fn blocking_write(&self, d: WriteData) -> Result<()> {
-        let rt = tokio::runtime::Handle::current();
-
-        let permit = rt.block_on(
-            self.clone()
-                .write_semaphore
-                .acquire_many_owned(d.data_size() as u32),
-        )?;
+    pub async fn write(&self, d: WriteData) -> Result<()> {
+        let permit = self
+            .clone()
+            .write_semaphore
+            .acquire_many_owned(d.data_size() as u32)
+            .await?;
 
         self.write_data_tx.send((permit, d))?;
 
@@ -189,14 +192,14 @@ mod write_task {
                                 WriteData::Block(b) => {
                                     block_buffer.push(b);
                                 }
-                                WriteData::Transaction(tx) => {
-                                    tx_buffer.push(tx);
+                                WriteData::ManyTransaction(txs) => {
+                                    tx_buffer.extend(txs);
                                 }
-                                WriteData::Txo(txo) => {
-                                    txo_buffer.push(txo);
+                                WriteData::ManyTxo(txos) => {
+                                    txo_buffer.extend(txos);
                                 }
-                                WriteData::SpentTxo(spent_txo) => {
-                                    spent_txo_buffer.push(spent_txo);
+                                WriteData::ManySpentTxo(spent_txos) => {
+                                    spent_txo_buffer.extend(spent_txos);
                                 }
                             }
                         }

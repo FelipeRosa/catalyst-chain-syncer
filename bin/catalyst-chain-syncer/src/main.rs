@@ -17,6 +17,7 @@ use catalyst_chaindata_writer::{
 };
 use clap::Parser;
 use pallas_traverse::MultiEraBlock;
+use tokio::sync::mpsc;
 
 fn parse_byte_size(s: &str) -> Result<u64, String> {
     parse_size::parse_size(s).map_err(|e| e.to_string())
@@ -59,98 +60,116 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let reader_config = BlockReaderConfig {
         worker_read_buffer_bytes_size: cli.read_worker_buffer_size as usize,
         read_worker_count: cli.read_workers_count,
-        processing_worker_count: cli.processing_workers_count,
     };
+
+    let mut reader = BlockReader::new(cli.immutabledb_path, &reader_config).await?;
 
     let latest_block_number = Arc::new(AtomicU64::new(0));
     let latest_slot_number = Arc::new(AtomicU64::new(0));
     let read_byte_count = Arc::new(AtomicU64::new(0));
     let processed_byte_count = Arc::new(AtomicU64::new(0));
 
-    let mut reader = BlockReader::new(cli.immutabledb_path, &reader_config, {
+    let mut processing_workers_txs = Vec::new();
+
+    for _ in 0..cli.processing_workers_count {
+        let (block_data_tx, mut block_data_rx) = mpsc::unbounded_channel::<(_, Vec<_>)>();
+        processing_workers_txs.push(block_data_tx);
+
         let latest_block_number = latest_block_number.clone();
         let latest_slot_number = latest_slot_number.clone();
         let read_byte_count = read_byte_count.clone();
         let processed_byte_count = processed_byte_count.clone();
+        let writer_handle = writer_handle.clone();
 
-        move |block_bytes| {
-            read_byte_count.fetch_add(block_bytes.len() as u64, Acquire);
+        tokio::task::spawn(async move {
+            while let Some((_permit, block_bytes)) = block_data_rx.recv().await {
+                read_byte_count.fetch_add(block_bytes.len() as u64, Acquire);
 
-            let mut w_byte_count = 0;
+                let mut w_byte_count = 0;
 
-            let block = MultiEraBlock::decode(&block_bytes).expect("Decode");
+                let block = MultiEraBlock::decode(&block_bytes).expect("Decode");
 
-            match cardano_block::CardanoBlock::from_block(&block, cli.network) {
-                Ok(d) => {
-                    let block_write_data = WriteData::Block(d);
-                    w_byte_count += block_write_data.data_size();
-                    writer_handle
-                        .blocking_write(block_write_data)
-                        .expect("Write");
-                }
-                Err(e) => eprintln!("Failed to parse block {e:?}"),
-            }
-
-            match cardano_transaction::CardanoTransaction::many_from_block(&block, cli.network) {
-                Ok(tx_data) => {
-                    for tx in tx_data {
-                        let tx_write_data = WriteData::Transaction(tx);
-                        w_byte_count += tx_write_data.data_size();
-
-                        writer_handle.blocking_write(tx_write_data).expect("Write");
+                match cardano_block::CardanoBlock::from_block(&block, cli.network) {
+                    Ok(d) => {
+                        let block_write_data = WriteData::Block(d);
+                        w_byte_count += block_write_data.data_size();
+                        writer_handle.write(block_write_data).await.expect("Write");
                     }
+                    Err(e) => eprintln!("Failed to parse block {e:?}"),
                 }
-                Err(e) => eprintln!("Failed to parse block transactions {e:?}"),
-            }
 
-            let txs = block.txs();
+                match cardano_transaction::CardanoTransaction::many_from_block(&block, cli.network)
+                {
+                    Ok(tx_data) => {
+                        let tx_write_data = WriteData::ManyTransaction(tx_data);
+                        w_byte_count += tx_write_data.data_size();
+                        writer_handle.write(tx_write_data).await.expect("Write");
+                    }
+                    Err(e) => eprintln!("Failed to parse block transactions {e:?}"),
+                }
 
-            match cardano_txo::CardanoTxo::from_transactions(&txs) {
-                Ok(txo_data) => {
-                    for txo in txo_data {
-                        let txo_write_data = WriteData::Txo(txo);
+                let txs = block.txs();
+
+                match cardano_txo::CardanoTxo::from_transactions(&txs) {
+                    Ok(txo_data) => {
+                        let txo_write_data = WriteData::ManyTxo(txo_data);
                         w_byte_count += txo_write_data.data_size();
 
-                        writer_handle.blocking_write(txo_write_data).expect("Write");
+                        writer_handle.write(txo_write_data).await.expect("Write");
                     }
+                    Err(e) => eprintln!("Failed to parse transactions TXOs {e:?}"),
                 }
-                Err(e) => eprintln!("Failed to parse transactions TXOs {e:?}"),
-            }
 
-            match cardano_spent_txo::CardanoSpentTxo::from_transactions(&txs) {
-                Ok(spent_txo_data) => {
-                    for spent_txo in spent_txo_data {
-                        let spent_txo_write_data = WriteData::SpentTxo(spent_txo);
+                match cardano_spent_txo::CardanoSpentTxo::from_transactions(&txs) {
+                    Ok(spent_txo_data) => {
+                        let spent_txo_write_data = WriteData::ManySpentTxo(spent_txo_data);
                         w_byte_count += spent_txo_write_data.data_size();
-
                         writer_handle
-                            .blocking_write(spent_txo_write_data)
+                            .write(spent_txo_write_data)
+                            .await
                             .expect("Write");
                     }
+                    Err(e) => eprintln!("Failed to parse transactions spent TXOs {e:?}"),
                 }
-                Err(e) => eprintln!("Failed to parse transactions spent TXOs {e:?}"),
-            }
 
-            latest_block_number.fetch_max(block.number(), Acquire);
-            latest_slot_number.fetch_max(block.slot(), Acquire);
-            processed_byte_count.fetch_add(w_byte_count as u64, Acquire);
-        }
-    })
-    .await?;
+                latest_block_number.fetch_max(block.number(), Acquire);
+                latest_slot_number.fetch_max(block.slot(), Acquire);
+                processed_byte_count.fetch_add(w_byte_count as u64, Acquire);
+            }
+        });
+    }
+
+    drop(writer_handle);
 
     let mut ticker = tokio::time::interval(Duration::from_secs(1));
+    let mut i = 0;
 
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 println!("Stopping block readers and processing workers...");
-                reader.close().await?;
+
+                // TODO: Do this in a better way
+                drop(reader);
+                drop(processing_workers_txs);
+
                 break;
             }
 
-            res = &mut reader => {
-                res?;
-                break;
+            res = reader.next() => {
+                match res {
+                    Some(v) => {
+                        processing_workers_txs[i].send(v).expect("Worker");
+                        i = (i + 1) % cli.processing_workers_count;
+                    }
+                    None => {
+                        // TODO: Do this in a better way
+                        drop(reader);
+                        drop(processing_workers_txs);
+
+                        break;
+                    }
+                }
             }
 
             _ = ticker.tick() => {

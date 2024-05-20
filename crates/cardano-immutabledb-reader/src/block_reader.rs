@@ -1,8 +1,6 @@
-use std::{
-    collections::BTreeSet, future::Future, os::unix::fs::MetadataExt, path::Path, sync::Arc,
-};
+use std::{collections::BTreeSet, os::unix::fs::MetadataExt, path::Path, sync::Arc};
 
-use tokio::{sync::Semaphore, task::JoinError};
+use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::dir_chunk_numbers;
@@ -11,33 +9,26 @@ use crate::dir_chunk_numbers;
 pub struct BlockReaderConfig {
     pub worker_read_buffer_bytes_size: usize,
     pub read_worker_count: usize,
-    pub processing_worker_count: usize,
 }
 
 impl Default for BlockReaderConfig {
     fn default() -> Self {
         Self {
             worker_read_buffer_bytes_size: 8 * 1024 * 1024, // 8MB
-            read_worker_count: 2,
-            processing_worker_count: 2,
+            read_worker_count: 1,
         }
     }
 }
 
 pub struct BlockReader {
-    cancellation_token: CancellationToken,
-    chunk_reader_tasks_joinset: tokio::task::JoinSet<()>,
+    _cancellation_token: CancellationToken,
+    read_data_rx: mpsc::UnboundedReceiver<(OwnedSemaphorePermit, Vec<u8>)>,
 }
 
 impl BlockReader {
-    pub async fn new<P, F>(
-        immutabledb_path: P,
-        config: &BlockReaderConfig,
-        on_block_callback: F,
-    ) -> anyhow::Result<Self>
+    pub async fn new<P>(immutabledb_path: P, config: &BlockReaderConfig) -> anyhow::Result<Self>
     where
         P: AsRef<Path>,
-        F: Fn(Vec<u8>) + Send + Sync + 'static,
     {
         let task_chunk_numbers = {
             let mut split_chunk_numbers = vec![(0u64, BTreeSet::new()); config.read_worker_count];
@@ -65,100 +56,51 @@ impl BlockReader {
             split_chunk_numbers
         };
 
-        let shared_on_block_callback = Arc::new(on_block_callback);
         let cancellation_token = CancellationToken::new();
-        let processing_semaphore = Arc::new(Semaphore::new(128 * 1024 * 1024));
+        let (read_data_tx, read_data_rx) = mpsc::unbounded_channel();
+        let read_semaphore = Arc::new(Semaphore::new(128 * 1024 * 1024));
 
-        let mut chunk_reader_tasks_joinset = tokio::task::JoinSet::new();
         for (_, chunk_numbers) in task_chunk_numbers {
             // Allocate a read buffer for each reader task
             let read_buffer = vec![0u8; config.worker_read_buffer_bytes_size];
 
-            chunk_reader_tasks_joinset.spawn(chunk_reader_task::start(
+            tokio::spawn(chunk_reader_task::start(
                 immutabledb_path.as_ref().to_path_buf(),
-                config.processing_worker_count,
                 read_buffer,
                 chunk_numbers,
-                shared_on_block_callback.clone(),
-                processing_semaphore.clone(),
+                read_semaphore.clone(),
+                read_data_tx.clone(),
                 cancellation_token.child_token(),
             ));
         }
 
         Ok(Self {
-            cancellation_token,
-            chunk_reader_tasks_joinset,
+            _cancellation_token: cancellation_token,
+            read_data_rx,
         })
     }
 
-    pub async fn close(self) -> Result<(), JoinError> {
-        self.cancellation_token.cancel();
-        self.await
-    }
-}
-
-impl Future for BlockReader {
-    type Output = Result<(), JoinError>;
-
-    fn poll(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        match self.chunk_reader_tasks_joinset.poll_join_next(cx) {
-            std::task::Poll::Ready(Some(Ok(_))) => {
-                cx.waker().wake_by_ref();
-                std::task::Poll::Pending
-            }
-            std::task::Poll::Ready(Some(Err(err))) => std::task::Poll::Ready(Err(err)),
-            std::task::Poll::Ready(None) => std::task::Poll::Ready(Ok(())),
-            std::task::Poll::Pending => std::task::Poll::Pending,
-        }
+    pub async fn next(&mut self) -> Option<(OwnedSemaphorePermit, Vec<u8>)> {
+        self.read_data_rx.recv().await
     }
 }
 
 mod chunk_reader_task {
     use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
-    use tokio::sync::{mpsc, Semaphore};
+    use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
     use tokio_util::sync::CancellationToken;
 
     use crate::read_chunk_file;
 
-    pub async fn start<F>(
+    pub async fn start(
         immutabledb_path: PathBuf,
-        processing_workers_count: usize,
         mut read_buffer: Vec<u8>,
         mut chunk_numbers: BTreeSet<u32>,
-        on_block_callback: Arc<F>,
-        processing_semaphore: Arc<Semaphore>,
+        read_semaphore: Arc<Semaphore>,
+        read_data_tx: mpsc::UnboundedSender<(OwnedSemaphorePermit, Vec<u8>)>,
         cancellation_token: CancellationToken,
-    ) where
-        F: Fn(Vec<u8>) + Send + Sync + 'static,
-    {
-        let mut processing_worker_txs = Vec::new();
-        let mut processing_workers_joinset = tokio::task::JoinSet::new();
-
-        for _ in 0..processing_workers_count {
-            let (processing_data_tx, mut processing_data_rx) =
-                mpsc::unbounded_channel::<(_, Vec<_>)>();
-
-            processing_workers_joinset.spawn_blocking({
-                let worker_on_block_callback = on_block_callback.clone();
-
-                move || {
-                    while let Some((_permit, block_data)) = processing_data_rx.blocking_recv() {
-                        worker_on_block_callback(block_data);
-                    }
-                }
-            });
-
-            processing_worker_txs.push(processing_data_tx);
-        }
-
-        // Drop these since we've already moved clones to the processing worker threads.
-        drop(on_block_callback);
-
-        let mut i = 0;
+    ) {
         'main_loop: while let Some(chunk_number) = chunk_numbers.pop_first() {
             let chunk_number_str = format!("{chunk_number:05}");
 
@@ -180,18 +122,15 @@ mod chunk_reader_task {
                     res = chunk_iter.next() => {
                         match res {
                             Ok(Some(block_data)) => {
-                                let permit = processing_semaphore
+                                let permit = read_semaphore
                                     .clone()
                                     .acquire_many_owned(block_data.len() as u32)
                                     .await
                                     .expect("Acquire");
 
-                                // if any worker fails we stop (for now)
-                                if processing_worker_txs[i].send((permit, block_data.to_vec())).is_err() {
+                                if read_data_tx.send((permit, block_data.to_vec())).is_err() {
                                     break 'main_loop;
                                 }
-
-                                i = (i + 1) % processing_workers_count;
                             }
                             Ok(None) => {
                                 break;
@@ -202,10 +141,6 @@ mod chunk_reader_task {
                 }
             }
         }
-
-        drop(processing_worker_txs);
-
-        while processing_workers_joinset.join_next().await.is_some() {}
     }
 }
 
@@ -219,39 +154,17 @@ mod test {
 
     #[tokio::test]
     async fn test_block_reader() {
-        let (block_numbers_tx, mut block_numbers_rx) = tokio::sync::mpsc::unbounded_channel();
-
         let config = BlockReaderConfig::default();
 
-        let mut block_reader = BlockReader::new("tests_data", &config, {
-            let block_numbers_tx = block_numbers_tx.clone();
+        let mut block_reader = BlockReader::new("tests_data", &config)
+            .await
+            .expect("Block reader started");
 
-            move |block_data| {
-                let block = MultiEraBlock::decode(&block_data).expect("Decoded");
-                let _ = block_numbers_tx.send(block.number());
-            }
-        })
-        .await
-        .expect("Block reader started");
-
-        let mut done = false;
         let mut block_numbers = BTreeSet::new();
 
-        loop {
-            tokio::select! {
-                res = block_numbers_rx.recv() => {
-                    let Some(block_number) = res else {
-                        break;
-                    };
-
-                    block_numbers.insert(block_number);
-                }
-
-                res = &mut block_reader, if !done => {
-                    res.expect("All blocks read");
-                    done = true;
-                }
-            }
+        while let Some((_permit, block_data)) = block_reader.next().await {
+            let decoded_block_data = MultiEraBlock::decode(&block_data).expect("Decoded");
+            block_numbers.insert(decoded_block_data.number());
         }
 
         assert_eq!(block_numbers.len(), 9766);
