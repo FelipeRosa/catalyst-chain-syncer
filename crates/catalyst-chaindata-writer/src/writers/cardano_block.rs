@@ -2,9 +2,11 @@ use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use pallas_traverse::MultiEraBlock;
 use tokio::task::JoinError;
-use tokio_postgres::{binary_copy::BinaryCopyInWriter, types::Type};
 
-use crate::connection::Connection;
+use db_util::connection::{
+    tokio_postgres::{binary_copy::BinaryCopyInWriter, types::Type},
+    Connection,
+};
 
 use super::network::Network;
 

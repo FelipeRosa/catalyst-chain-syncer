@@ -1,5 +1,7 @@
 use std::future::Future;
 
+pub use tokio_postgres;
+
 pub struct Connection {
     client: tokio_postgres::Client,
     conn_task_handle: tokio::task::JoinHandle<()>,

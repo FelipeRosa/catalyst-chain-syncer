@@ -24,6 +24,12 @@ pub async fn dir_chunk_numbers<P: AsRef<Path>>(path: P) -> anyhow::Result<BTreeS
     Ok(chunk_numbers)
 }
 
+const CHUNK_SIZE: u32 = 21_600;
+
+pub fn slot_chunk_number(slot_no: u64) -> u32 {
+    (slot_no / (CHUNK_SIZE as u64)) as u32
+}
+
 binary_layout!(secondary_index_entry_layout, BigEndian, {
     block_offset: u64,
     header_offset: u16,
@@ -38,16 +44,16 @@ const SECONDARY_INDEX_ENTRY_SIZE: usize = match secondary_index_entry_layout::SI
     None => panic!("Expected secondary entry layout to have constant size"),
 };
 
-struct SecondaryIndexEntry {
+pub struct SecondaryIndexEntry {
     block_offset: u64,
 }
 
-struct SecondaryIndex {
+pub struct SecondaryIndex {
     entries: Vec<SecondaryIndexEntry>,
 }
 
 impl SecondaryIndex {
-    async fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+    pub async fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let mut secondary_index_file = tokio::fs::File::open(path).await?;
 
         let mut entries = Vec::new();
@@ -74,7 +80,7 @@ impl SecondaryIndex {
     }
 }
 
-struct ReadChunkFile<'a> {
+pub struct ReadChunkFile<'a> {
     secondary_index: SecondaryIndex,
     chunk_file_data: &'a mut Vec<u8>,
     counter: usize,
@@ -113,7 +119,7 @@ impl<'a> ReadChunkFile<'a> {
     }
 }
 
-async fn read_chunk_file(
+pub async fn read_chunk_file(
     path: impl AsRef<Path>,
     secondary_index_path: impl AsRef<Path>,
     data_buffer: &mut Vec<u8>,

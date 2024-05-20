@@ -3,15 +3,18 @@ resolver = "2"
 
 members = [
     "bin/catalyst-chain-syncer",
+    "crates/db-util",
     "crates/cardano-immutabledb-reader",
     "crates/cardano-immutabledb-reader/testbench",
     "crates/catalyst-chaindata-writer"
 ]
 
 [workspace.dependencies]
+db-util = { path = "crates/db-util" }
 cardano-immutabledb-reader = { path = "crates/cardano-immutabledb-reader" }
 catalyst-chaindata-writer = { path = "crates/catalyst-chaindata-writer" }
 
+anyhow = "1.0.83"
 tokio = { version = "1.37.0", default-features = false }
 
 [profile.release]

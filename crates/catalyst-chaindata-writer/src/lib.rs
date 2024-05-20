@@ -1,10 +1,9 @@
-pub mod connection;
 pub mod writers;
 
 use std::{future::Future, mem, sync::Arc};
 
 use anyhow::Result;
-use connection::Connection;
+use db_util::connection::Connection;
 use tokio::{
     sync::{mpsc, OwnedSemaphorePermit, Semaphore},
     task::{JoinError, JoinHandle},
@@ -130,10 +129,10 @@ impl Future for ChainDataWriter {
 mod write_task {
     use std::time::Duration;
 
+    use db_util::connection::Connection;
     use tokio::sync::{mpsc, OwnedSemaphorePermit};
 
     use crate::{
-        connection::Connection,
         writers::{
             cardano_block, cardano_spent_txo, cardano_transaction, cardano_txo, Writer as _,
         },

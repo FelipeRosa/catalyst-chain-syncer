@@ -1,10 +1,11 @@
 use anyhow::Result;
+use db_util::connection::{
+    tokio_postgres::{binary_copy::BinaryCopyInWriter, types::Type},
+    Connection,
+};
 use pallas_traverse::{MultiEraAsset, MultiEraPolicyAssets, MultiEraTx};
 use serde::Serialize;
 use tokio::task::JoinError;
-use tokio_postgres::{binary_copy::BinaryCopyInWriter, types::Type};
-
-use crate::connection::Connection;
 
 use super::serde_size::serde_size;
 

@@ -174,13 +174,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "db-util",
  "lazy_static",
  "pallas-addresses",
  "pallas-traverse",
  "serde",
  "serde_json",
  "tokio",
- "tokio-postgres",
 ]
 
 [[package]]
@@ -303,6 +303,15 @@ name = "cryptoxide"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "382ce8820a5bb815055d3553a610e8cb542b2d767bbacea99038afda96cd760d"
+
+[[package]]
+name = "db-util"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tokio",
+ "tokio-postgres",
+]
 
 [[package]]
 name = "digest"
