@@ -88,56 +88,49 @@ async fn main() -> Result<(), Box<dyn Error>> {
             while let Some((_permit, block_bytes)) = block_data_rx.recv().await {
                 read_byte_count.fetch_add(block_bytes.len() as u64, Acquire);
 
-                let mut w_byte_count = 0;
-
                 let block = MultiEraBlock::decode(&block_bytes).expect("Decode");
 
-                match cardano_block::CardanoBlock::from_block(&block, cli.network) {
-                    Ok(d) => {
-                        let block_write_data = WriteData::Block(d);
-                        w_byte_count += block_write_data.data_size();
-                        writer_handle.write(block_write_data).await.expect("Write");
-                    }
-                    Err(e) => eprintln!("Failed to parse block {e:?}"),
-                }
+                let Ok(block_data) = cardano_block::CardanoBlock::from_block(&block, cli.network)
+                else {
+                    eprintln!("Failed to parse block");
+                    continue;
+                };
 
-                match cardano_transaction::CardanoTransaction::many_from_block(&block, cli.network)
-                {
-                    Ok(tx_data) => {
-                        let tx_write_data = WriteData::ManyTransaction(tx_data);
-                        w_byte_count += tx_write_data.data_size();
-                        writer_handle.write(tx_write_data).await.expect("Write");
-                    }
-                    Err(e) => eprintln!("Failed to parse block transactions {e:?}"),
-                }
+                let Ok(transaction_data) =
+                    cardano_transaction::CardanoTransaction::many_from_block(&block, cli.network)
+                else {
+                    eprintln!("Failed to parse transactions");
+                    continue;
+                };
 
                 let txs = block.txs();
 
-                match cardano_txo::CardanoTxo::from_transactions(&txs) {
-                    Ok(txo_data) => {
-                        let txo_write_data = WriteData::ManyTxo(txo_data);
-                        w_byte_count += txo_write_data.data_size();
+                let Ok(transaction_outputs_data) = cardano_txo::CardanoTxo::from_transactions(&txs)
+                else {
+                    eprintln!("Failed to parse TXOs");
+                    continue;
+                };
 
-                        writer_handle.write(txo_write_data).await.expect("Write");
-                    }
-                    Err(e) => eprintln!("Failed to parse transactions TXOs {e:?}"),
-                }
+                let Ok(spent_transaction_outputs_data) =
+                    cardano_spent_txo::CardanoSpentTxo::from_transactions(&txs)
+                else {
+                    eprintln!("Failed to parse spent TXOs");
+                    continue;
+                };
 
-                match cardano_spent_txo::CardanoSpentTxo::from_transactions(&txs) {
-                    Ok(spent_txo_data) => {
-                        let spent_txo_write_data = WriteData::ManySpentTxo(spent_txo_data);
-                        w_byte_count += spent_txo_write_data.data_size();
-                        writer_handle
-                            .write(spent_txo_write_data)
-                            .await
-                            .expect("Write");
-                    }
-                    Err(e) => eprintln!("Failed to parse transactions spent TXOs {e:?}"),
-                }
+                let write_data = WriteData {
+                    block: block_data,
+                    transactions: transaction_data,
+                    transaction_outputs: transaction_outputs_data,
+                    spent_transaction_outputs: spent_transaction_outputs_data,
+                };
 
+                processed_byte_count.fetch_add(write_data.byte_size() as u64, Acquire);
                 latest_block_number.fetch_max(block.number(), Acquire);
                 latest_slot_number.fetch_max(block.slot(), Acquire);
-                processed_byte_count.fetch_add(w_byte_count as u64, Acquire);
+                drop(block_bytes);
+
+                writer_handle.write(write_data).await.expect("Write");
             }
         });
     }

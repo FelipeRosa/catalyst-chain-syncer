@@ -1,7 +1,7 @@
 pub mod connection;
 pub mod writers;
 
-use std::{future::Future, sync::Arc};
+use std::{future::Future, mem, sync::Arc};
 
 use anyhow::Result;
 use connection::Connection;
@@ -36,26 +36,31 @@ pub async fn create_indexes(conn_string: &str) -> Result<()> {
     Ok(())
 }
 
-pub enum WriteData {
-    Block(CardanoBlock),
-    ManyTransaction(Vec<CardanoTransaction>),
-    ManyTxo(Vec<CardanoTxo>),
-    ManySpentTxo(Vec<CardanoSpentTxo>),
+pub struct WriteData {
+    pub block: CardanoBlock,
+    pub transactions: Vec<CardanoTransaction>,
+    pub transaction_outputs: Vec<CardanoTxo>,
+    pub spent_transaction_outputs: Vec<CardanoSpentTxo>,
 }
 
 impl WriteData {
-    pub fn data_size(&self) -> usize {
-        match self {
-            WriteData::Block(b) => std::mem::size_of_val(b),
-            WriteData::ManyTransaction(txs) => txs.iter().map(std::mem::size_of_val).sum(),
-            WriteData::ManyTxo(txos) => txos
+    pub fn byte_size(&self) -> usize {
+        mem::size_of_val(&self.block)
+            + self
+                .transactions
                 .iter()
-                .map(|txo| std::mem::size_of_val(txo) + txo.assets_size_estimate)
-                .sum(),
-            WriteData::ManySpentTxo(spent_txos) => {
-                spent_txos.iter().map(std::mem::size_of_val).sum()
-            }
-        }
+                .map(mem::size_of_val)
+                .sum::<usize>()
+            + self
+                .transaction_outputs
+                .iter()
+                .map(|txo| mem::size_of_val(txo) + txo.assets_size_estimate)
+                .sum::<usize>()
+            + self
+                .spent_transaction_outputs
+                .iter()
+                .map(mem::size_of_val)
+                .sum::<usize>()
     }
 }
 
@@ -70,7 +75,7 @@ impl ChainDataWriterHandle {
         let permit = self
             .clone()
             .write_semaphore
-            .acquire_many_owned(d.data_size() as u32)
+            .acquire_many_owned(d.byte_size() as u32)
             .await?;
 
         self.write_data_tx.send((permit, d))?;
@@ -181,27 +186,17 @@ mod write_task {
                             close = true;
                         }
                         Some((permit, data)) => {
-                            total_byte_count += data.data_size();
+                            total_byte_count += data.byte_size();
 
                             match merged_permits.as_mut() {
                                 Some(p) => p.merge(permit),
                                 None => merged_permits = Some(permit),
                             }
 
-                            match data {
-                                WriteData::Block(b) => {
-                                    block_buffer.push(b);
-                                }
-                                WriteData::ManyTransaction(txs) => {
-                                    tx_buffer.extend(txs);
-                                }
-                                WriteData::ManyTxo(txos) => {
-                                    txo_buffer.extend(txos);
-                                }
-                                WriteData::ManySpentTxo(spent_txos) => {
-                                    spent_txo_buffer.extend(spent_txos);
-                                }
-                            }
+                            block_buffer.push(data.block);
+                            tx_buffer.extend(data.transactions);
+                            txo_buffer.extend(data.transaction_outputs);
+                            spent_txo_buffer.extend(data.spent_transaction_outputs);
                         }
                     }
                 }
