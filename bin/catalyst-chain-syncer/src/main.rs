@@ -176,12 +176,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
 
             _ = ticker.tick() => {
+                let mem_usage = memory_stats::memory_stats().map(|s| s.physical_mem).unwrap_or(0);
+
                 println!(
-                    "BLOCK {} | SLOT {} | READ {} MB/s | PROCESSED {} MB/s",
+                    "BLOCK {} | SLOT {} | READ {} MB/s | PROCESSED {} MB/s | MEMORY USAGE {} MB",
                     latest_block_number.load(Acquire),
                     latest_slot_number.load(Acquire),
                     read_byte_count.swap(0, Acquire) / (1024 * 1024),
                     processed_byte_count.swap(0, Acquire) / (1024 * 1024),
+                    mem_usage / (1024 * 1024),
                 );
             }
         }
