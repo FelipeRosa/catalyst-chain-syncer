@@ -7,15 +7,17 @@ use crate::dir_chunk_numbers;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockReaderConfig {
-    pub worker_read_buffer_bytes_size: usize,
+    pub worker_read_buffer_byte_size: usize,
     pub read_worker_count: usize,
+    pub unprocessed_data_buffer_byte_size: usize,
 }
 
 impl Default for BlockReaderConfig {
     fn default() -> Self {
         Self {
-            worker_read_buffer_bytes_size: 8 * 1024 * 1024, // 8MB
+            worker_read_buffer_byte_size: 8 * 1024 * 1024, // 8MB
             read_worker_count: 1,
+            unprocessed_data_buffer_byte_size: 8 * 1024 * 1024, // 8MB
         }
     }
 }
@@ -58,11 +60,11 @@ impl BlockReader {
 
         let cancellation_token = CancellationToken::new();
         let (read_data_tx, read_data_rx) = mpsc::unbounded_channel();
-        let read_semaphore = Arc::new(Semaphore::new(128 * 1024 * 1024));
+        let read_semaphore = Arc::new(Semaphore::new(config.unprocessed_data_buffer_byte_size));
 
         for (_, chunk_numbers) in task_chunk_numbers {
             // Allocate a read buffer for each reader task
-            let read_buffer = vec![0u8; config.worker_read_buffer_bytes_size];
+            let read_buffer = vec![0u8; config.worker_read_buffer_byte_size];
 
             tokio::spawn(chunk_reader_task::start(
                 immutabledb_path.as_ref().to_path_buf(),

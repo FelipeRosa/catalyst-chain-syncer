@@ -33,13 +33,15 @@ struct Cli {
     #[clap(long)]
     database_url: String,
 
-    #[clap(long, default_value_t = 2)]
+    #[clap(long, default_value_t = 1)]
     read_workers_count: usize,
-    #[clap(long, default_value_t = 2)]
-    processing_workers_count: usize,
     #[clap(long, value_parser = parse_byte_size, default_value = "128MiB")]
     read_worker_buffer_size: u64,
-    #[clap(long, value_parser = parse_byte_size, default_value = "128MiB")]
+    #[clap(long, value_parser = parse_byte_size, default_value = "256MiB")]
+    unprocessed_data_buffer_size: u64,
+    #[clap(long, default_value_t = 1)]
+    processing_workers_count: usize,
+    #[clap(long, value_parser = parse_byte_size, default_value = "256MiB")]
     write_worker_buffer_size: u64,
 }
 
@@ -49,7 +51,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     catalyst_chaindata_writer::create_tables_if_not_present(&cli.database_url).await?;
 
-    let t = Instant::now();
+    let mut t = Instant::now();
 
     let (writer, writer_handle) = ChainDataWriter::connect(
         cli.database_url.clone(),
@@ -58,8 +60,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await?;
 
     let reader_config = BlockReaderConfig {
-        worker_read_buffer_bytes_size: cli.read_worker_buffer_size as usize,
+        worker_read_buffer_byte_size: cli.read_worker_buffer_size as usize,
         read_worker_count: cli.read_workers_count,
+        unprocessed_data_buffer_byte_size: cli.unprocessed_data_buffer_size as usize,
     };
 
     let mut reader = BlockReader::new(cli.immutabledb_path, &reader_config).await?;
@@ -189,10 +192,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     writer.await?;
     println!("Finished syncing immutabledb data ({:?})", t.elapsed());
 
-    // println!("Creating indexes...");
-    // t = Instant::now();
-    // catalyst_chaindata_writer::create_indexes(&cli.database_url).await?;
-    // println!("Done (took {:?})", t.elapsed());
+    println!("Creating indexes...");
+    t = Instant::now();
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            println!("Exiting");
+        }
+
+        res = catalyst_chaindata_writer::create_indexes(&cli.database_url) => {
+            res?;
+            println!("Done (took {:?})", t.elapsed());
+        }
+    }
 
     Ok(())
 }

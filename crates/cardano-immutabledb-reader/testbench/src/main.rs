@@ -22,10 +22,12 @@ struct Cli {
     immutabledb_path: PathBuf,
     #[clap(long, default_value_t = 1)]
     read_worker_count: usize,
-    #[clap(long, default_value_t = 1)]
-    processing_worker_count: usize,
     #[clap(long, value_parser = parse_byte_size, default_value = "128MiB")]
     read_worker_buffer_size: u64,
+    #[clap(long, value_parser = parse_byte_size, default_value = "16MiB")]
+    unprocessed_data_buffer_size: u64,
+    #[clap(long, default_value_t = 1)]
+    processing_worker_count: usize,
 }
 
 #[tokio::main]
@@ -33,8 +35,9 @@ async fn main() {
     let cli_args = Cli::parse();
 
     let config = BlockReaderConfig {
-        worker_read_buffer_bytes_size: cli_args.read_worker_buffer_size as usize,
+        worker_read_buffer_byte_size: cli_args.read_worker_buffer_size as usize,
         read_worker_count: cli_args.read_worker_count,
+        unprocessed_data_buffer_byte_size: cli_args.unprocessed_data_buffer_size as usize,
     };
 
     let mut block_reader = BlockReader::new(cli_args.immutabledb_path, &config)
