@@ -219,10 +219,10 @@ mod write_task {
                 )
                 .expect("Batch copies");
 
-                // block_buffer = Vec::new();
-                // tx_buffer = Vec::new();
-                // txo_buffer = Vec::new();
-                // spent_txo_buffer = Vec::new();
+                block_buffer.clear();
+                tx_buffer.clear();
+                txo_buffer.clear();
+                spent_txo_buffer.clear();
 
                 total_byte_count = 0;
                 merged_permits = None;

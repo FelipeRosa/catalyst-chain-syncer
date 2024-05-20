@@ -182,7 +182,9 @@ mod chunk_reader_task {
                             Ok(Some(block_data)) => {
                                 let permit = processing_semaphore
                                     .clone()
-                                    .acquire_many_owned(block_data.len() as u32);
+                                    .acquire_many_owned(block_data.len() as u32)
+                                    .await
+                                    .expect("Acquire");
 
                                 // if any worker fails we stop (for now)
                                 if processing_worker_txs[i].send((permit, block_data.to_vec())).is_err() {
