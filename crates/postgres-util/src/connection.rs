@@ -1,7 +1,5 @@
 use std::future::Future;
 
-pub use tokio_postgres;
-
 pub struct Connection {
     client: tokio_postgres::Client,
     conn_task_handle: tokio::task::JoinHandle<()>,
@@ -23,6 +21,10 @@ impl Connection {
 
     pub fn client(&self) -> &tokio_postgres::Client {
         &self.client
+    }
+
+    pub fn client_mut(&mut self) -> &mut tokio_postgres::Client {
+        &mut self.client
     }
 
     pub fn close(self) -> impl Future<Output = Result<(), tokio::task::JoinError>> {

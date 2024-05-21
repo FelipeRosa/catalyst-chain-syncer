@@ -3,15 +3,15 @@ resolver = "2"
 
 members = [
     "bin/catalyst-chain-syncer",
-    "crates/db-util",
     "crates/cardano-immutabledb-reader",
     "crates/cardano-immutabledb-reader/testbench",
     "crates/catalyst-chaindata-types",
     "crates/catalyst-chaindata-writer",
+    "crates/postgres-util",
 ]
 
 [workspace.dependencies]
-db-util = { path = "crates/db-util" }
+postgres-util = { path = "crates/postgres-util" }
 cardano-immutabledb-reader = { path = "crates/cardano-immutabledb-reader" }
 catalyst-chaindata-types = { path = "crates/catalyst-chaindata-types" }
 catalyst-chaindata-writer = { path = "crates/catalyst-chaindata-writer" }

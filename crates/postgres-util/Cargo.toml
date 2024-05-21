@@ -1,5 +1,5 @@
 [package]
-name = "db-util"
+name = "postgres-util"
 version = "0.1.0"
 edition = "2021"
 

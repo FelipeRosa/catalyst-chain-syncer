@@ -37,6 +37,13 @@ impl WriteData {
     }
 }
 
+pub trait Writer {
+    fn batch_write(
+        &mut self,
+        data: Vec<WriteData>,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send;
+}
+
 #[derive(Clone)]
 pub struct ChainDataWriterHandle {
     write_semaphore: Arc<Semaphore>,
@@ -62,14 +69,17 @@ pub struct ChainDataWriter {
 }
 
 impl ChainDataWriter {
-    pub async fn connect(
-        conn_string: String,
+    pub async fn new<W>(
+        writer: W,
         write_buffer_byte_size: usize,
-    ) -> Result<(Self, ChainDataWriterHandle)> {
+    ) -> Result<(Self, ChainDataWriterHandle)>
+    where
+        W: Writer + Send + 'static,
+    {
         let (write_data_tx, write_data_rx) = mpsc::unbounded_channel();
 
-        let write_worker_task_handle = tokio::spawn(write_task::start(
-            conn_string,
+        let write_worker_task_handle = tokio::spawn(write_task::run(
+            writer,
             write_buffer_byte_size,
             write_data_rx,
         ));
@@ -103,44 +113,28 @@ impl Future for ChainDataWriter {
 mod write_task {
     use std::time::Duration;
 
-    use db_util::connection::Connection;
     use tokio::sync::{mpsc, OwnedSemaphorePermit};
 
-    use crate::{
-        writers::{
-            cardano_block, cardano_spent_txo, cardano_transaction, cardano_txo, Writer as _,
-        },
-        WriteData,
-    };
+    use crate::{WriteData, Writer};
 
-    pub async fn start(
-        conn_string: String,
+    pub async fn run<W>(
+        mut writer: W,
         write_buffer_byte_size: usize,
         mut write_data_rx: mpsc::UnboundedReceiver<(OwnedSemaphorePermit, WriteData)>,
-    ) {
-        let block_writer =
-            cardano_block::Writer::new(Connection::open(&conn_string).await.expect("Connection"));
-        let tx_writer = cardano_transaction::Writer::new(
-            Connection::open(&conn_string).await.expect("Connection"),
-        );
-        let txo_writer =
-            cardano_txo::Writer::new(Connection::open(&conn_string).await.expect("Connection"));
-        let spent_txo_writer = cardano_spent_txo::Writer::new(
-            Connection::open(&conn_string).await.expect("Connection"),
-        );
-
-        let mut block_buffer = Vec::new();
-        let mut tx_buffer = Vec::new();
-        let mut txo_buffer = Vec::new();
-        let mut spent_txo_buffer = Vec::new();
-
+    ) where
+        W: Writer,
+    {
         let mut merged_permits: Option<OwnedSemaphorePermit> = None;
+        let mut writer_data_buffer = Vec::new();
+
         let mut total_byte_count = 0;
 
         let mut flush = false;
         let mut close = false;
 
         let mut ticker = tokio::time::interval(Duration::from_secs(30));
+
+        let mut latest_block = 0;
 
         loop {
             tokio::select! {
@@ -166,10 +160,8 @@ mod write_task {
                                 None => merged_permits = Some(permit),
                             }
 
-                            block_buffer.push(data.block);
-                            tx_buffer.extend(data.transactions);
-                            txo_buffer.extend(data.transaction_outputs);
-                            spent_txo_buffer.extend(data.spent_transaction_outputs);
+                            latest_block = latest_block.max(data.block.block_no);
+                            writer_data_buffer.push(data);
                         }
                     }
                 }
@@ -177,26 +169,18 @@ mod write_task {
 
             if (flush && total_byte_count > 0) || total_byte_count >= write_buffer_byte_size {
                 println!(
-                    "WRITING {:?} | SIZE {:.2} MB",
-                    block_buffer.iter().map(|b| b.block_no).max(),
+                    "WRITING {} | SIZE {:.2} MB",
+                    latest_block,
                     (total_byte_count as f64) / (1024.0 * 1024.0),
                 );
 
-                tokio::try_join!(
-                    block_writer.batch_copy(&block_buffer),
-                    tx_writer.batch_copy(&tx_buffer),
-                    txo_writer.batch_copy(&txo_buffer),
-                    spent_txo_writer.batch_copy(&spent_txo_buffer)
-                )
-                .expect("Batch copies");
+                writer
+                    .batch_write(std::mem::take(&mut writer_data_buffer))
+                    .await
+                    .expect("Write");
 
-                block_buffer.clear();
-                tx_buffer.clear();
-                txo_buffer.clear();
-                spent_txo_buffer.clear();
-
-                total_byte_count = 0;
                 merged_permits = None;
+                total_byte_count = 0;
 
                 ticker.reset();
 

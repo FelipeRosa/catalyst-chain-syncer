@@ -1,6 +1,8 @@
 use anyhow::Result;
 use connection::Connection;
 
+pub use tokio_postgres;
+
 pub mod connection;
 
 pub async fn create_tables_if_not_present(conn_string: &str) -> Result<()> {

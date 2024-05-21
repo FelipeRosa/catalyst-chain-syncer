@@ -89,14 +89,17 @@ impl CardanoTxo {
                         pallas_addresses::Address::Stake(stake_address) => Some(stake_address),
                     };
 
-                    let parsed_assets = parse_policy_assets(&tx_output.non_ada_assets());
-                    let assets_size_estimate = serde_size(&parsed_assets)?;
+                    // let parsed_assets = parse_policy_assets(&tx_output.non_ada_assets());
+                    // let assets_size_estimate = serde_size(&parsed_assets)?;
+                    // let assets = serde_json::to_value(&parsed_assets)?;
+                    let assets_size_estimate = 0;
+                    let assets = serde_json::Value::Null;
 
                     Ok(Self {
                         transaction_hash: *tx.hash(),
                         index,
                         value: tx_output.lovelace_amount(),
-                        assets: serde_json::to_value(parsed_assets)?,
+                        assets,
                         assets_size_estimate,
                         stake_credential: stake_credential.map(|a| **a.payload().as_hash()),
                     })

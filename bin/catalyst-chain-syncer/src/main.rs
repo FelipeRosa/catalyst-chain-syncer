@@ -12,7 +12,9 @@ use cardano_immutabledb_reader::block_reader::{BlockReader, BlockReaderConfig};
 use catalyst_chaindata_types::{
     CardanoBlock, CardanoSpentTxo, CardanoTransaction, CardanoTxo, Network,
 };
-use catalyst_chaindata_writer::{ChainDataWriter, ChainDataWriterHandle, WriteData};
+use catalyst_chaindata_writer::{
+    writers::postgres::PostgresWriter, ChainDataWriter, ChainDataWriterHandle, WriteData,
+};
 use clap::Parser;
 use pallas_traverse::MultiEraBlock;
 use tokio::sync::{mpsc, OwnedSemaphorePermit};
@@ -47,13 +49,11 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
-    db_util::create_tables_if_not_present(&cli.database_url).await?;
+    postgres_util::create_tables_if_not_present(&cli.database_url).await?;
+    let pg_writer = PostgresWriter::open(&cli.database_url).await?;
 
-    let (writer, writer_handle) = ChainDataWriter::connect(
-        cli.database_url.clone(),
-        cli.write_worker_buffer_size as usize,
-    )
-    .await?;
+    let (writer, writer_handle) =
+        ChainDataWriter::new(pg_writer, cli.write_worker_buffer_size as usize).await?;
 
     // Stats
     let latest_block_number = Arc::new(AtomicU64::new(0));
@@ -91,12 +91,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Checking synced chain data...");
 
     let (missing_data_ranges, latest_slot) = {
-        let conn = db_util::connection::Connection::open(&cli.database_url).await?;
+        let conn = postgres_util::connection::Connection::open(&cli.database_url).await?;
 
         let rows = conn
             .client()
             .query(
-                include_str!("../../../crates/db-util/sql/find_missing_data.sql"),
+                include_str!("../../../crates/postgres-util/sql/find_missing_data.sql"),
                 &[],
             )
             .await?;
@@ -112,7 +112,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let row = conn
             .client()
             .query_opt(
-                include_str!("../../../crates/db-util/sql/latest_slot.sql"),
+                include_str!("../../../crates/postgres-util/sql/latest_slot.sql"),
                 &[],
             )
             .await?;
@@ -211,7 +211,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("Exiting");
             }
 
-            res = db_util::create_indexes(&cli.database_url) => {
+            res = postgres_util::create_indexes(&cli.database_url) => {
                 res?;
                 println!("Done (took {:?})", t.elapsed());
             }

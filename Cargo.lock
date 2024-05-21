@@ -164,10 +164,10 @@ dependencies = [
  "catalyst-chaindata-types",
  "catalyst-chaindata-writer",
  "clap",
- "db-util",
  "memory-stats",
  "pallas-traverse",
  "parse-size",
+ "postgres-util",
  "tokio",
 ]
 
@@ -190,7 +190,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "catalyst-chaindata-types",
- "db-util",
+ "postgres-util",
  "tokio",
 ]
 
@@ -314,15 +314,6 @@ name = "cryptoxide"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "382ce8820a5bb815055d3553a610e8cb542b2d767bbacea99038afda96cd760d"
-
-[[package]]
-name = "db-util"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "tokio",
- "tokio-postgres",
-]
 
 [[package]]
 name = "digest"
@@ -818,6 +809,15 @@ dependencies = [
  "postgres-protocol",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "postgres-util"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tokio",
+ "tokio-postgres",
 ]
 
 [[package]]
