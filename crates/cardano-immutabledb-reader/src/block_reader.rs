@@ -1,9 +1,15 @@
-use std::{collections::BTreeSet, os::unix::fs::MetadataExt, path::Path, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    ops::{Bound, RangeBounds},
+    os::unix::fs::MetadataExt,
+    path::Path,
+    sync::Arc,
+};
 
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use crate::dir_chunk_numbers;
+use crate::{dir_chunk_numbers, slot_chunk_number};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockReaderConfig {
@@ -28,16 +34,45 @@ pub struct BlockReader {
 }
 
 impl BlockReader {
-    pub async fn new<P>(immutabledb_path: P, config: &BlockReaderConfig) -> anyhow::Result<Self>
+    pub async fn new<P, R>(
+        immutabledb_path: P,
+        config: &BlockReaderConfig,
+        slot_range: R,
+    ) -> anyhow::Result<Self>
     where
         P: AsRef<Path>,
+        R: RangeBounds<u64> + Clone + Send + 'static,
     {
         let task_chunk_numbers = {
+            let min_slot_bound = match slot_range.start_bound().cloned() {
+                Bound::Included(s) => s,
+                Bound::Excluded(s) => s + 1,
+                Bound::Unbounded => 0,
+            };
+            let max_slot_bound = match slot_range.end_bound().cloned() {
+                Bound::Included(s) => Some(s),
+                Bound::Excluded(s) => Some(s - 1),
+                Bound::Unbounded => None,
+            };
+
+            let min_chunk_number = slot_chunk_number(min_slot_bound);
+            let max_chunk_number = max_slot_bound.map(slot_chunk_number);
+
             let mut split_chunk_numbers = vec![(0u64, BTreeSet::new()); config.read_worker_count];
 
             let chunk_numbers = dir_chunk_numbers(immutabledb_path.as_ref()).await?;
 
             for chunk_number in chunk_numbers {
+                if chunk_number < min_chunk_number
+                    || max_chunk_number
+                        .as_ref()
+                        .copied()
+                        .map(|s| chunk_number > s)
+                        .unwrap_or(false)
+                {
+                    continue;
+                }
+
                 let f = tokio::fs::File::open(
                     immutabledb_path
                         .as_ref()
@@ -70,6 +105,7 @@ impl BlockReader {
                 immutabledb_path.as_ref().to_path_buf(),
                 read_buffer,
                 chunk_numbers,
+                slot_range.clone(),
                 read_semaphore.clone(),
                 read_data_tx.clone(),
                 cancellation_token.child_token(),
@@ -88,21 +124,24 @@ impl BlockReader {
 }
 
 mod chunk_reader_task {
-    use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
+    use std::{collections::BTreeSet, ops::RangeBounds, path::PathBuf, sync::Arc};
 
     use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
     use tokio_util::sync::CancellationToken;
 
     use crate::read_chunk_file;
 
-    pub async fn start(
+    pub async fn start<R>(
         immutabledb_path: PathBuf,
         mut read_buffer: Vec<u8>,
         mut chunk_numbers: BTreeSet<u32>,
+        slot_range: R,
         read_semaphore: Arc<Semaphore>,
         read_data_tx: mpsc::UnboundedSender<(OwnedSemaphorePermit, Vec<u8>)>,
         cancellation_token: CancellationToken,
-    ) {
+    ) where
+        R: RangeBounds<u64>,
+    {
         'main_loop: while let Some(chunk_number) = chunk_numbers.pop_first() {
             let chunk_number_str = format!("{chunk_number:05}");
 
@@ -123,7 +162,12 @@ mod chunk_reader_task {
 
                     res = chunk_iter.next() => {
                         match res {
-                            Ok(Some(block_data)) => {
+                            Ok(Some((slot, block_data))) => {
+                                // Filter out slots outside the required range
+                                if !slot_range.contains(&slot) {
+                                    continue;
+                                }
+
                                 let permit = read_semaphore
                                     .clone()
                                     .acquire_many_owned(block_data.len() as u32)
@@ -158,7 +202,7 @@ mod test {
     async fn test_block_reader() {
         let config = BlockReaderConfig::default();
 
-        let mut block_reader = BlockReader::new("tests_data", &config)
+        let mut block_reader = BlockReader::new("tests_data", &config, ..)
             .await
             .expect("Block reader started");
 
@@ -170,6 +214,32 @@ mod test {
         }
 
         assert_eq!(block_numbers.len(), 9766);
+
+        let mut last_block_number = block_numbers.pop_first().expect("At least one block");
+        for block_number in block_numbers {
+            assert!(block_number == last_block_number + 1);
+            last_block_number = block_number;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_block_reader_range() {
+        let config = BlockReaderConfig::default();
+
+        // Read from block 1000 to block 4999
+        let mut block_reader = BlockReader::new("tests_data", &config, 105480..185480)
+            .await
+            .expect("Block reader started");
+
+        let mut block_numbers = BTreeSet::new();
+
+        while let Some((_permit, block_data)) = block_reader.next().await {
+            let decoded_block_data = MultiEraBlock::decode(&block_data).expect("Decoded");
+            block_numbers.insert(decoded_block_data.number());
+        }
+
+        assert_eq!(block_numbers.first(), Some(&1000));
+        assert_eq!(block_numbers.last(), Some(&4999));
 
         let mut last_block_number = block_numbers.pop_first().expect("At least one block");
         for block_number in block_numbers {

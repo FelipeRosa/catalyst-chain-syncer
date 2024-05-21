@@ -6,6 +6,9 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 binary-layout = "4.0.2"
+pallas-codec = "0.25.0"
+pallas-primitives = { version = "0.25.0", default-features = false }
+pallas-traverse = "0.25.0"
 tokio = { workspace = true, features = ["fs", "macros", "io-util", "sync", "rt"] }
 tokio-util = "0.7.11"
 

@@ -40,7 +40,7 @@ async fn main() {
         unprocessed_data_buffer_byte_size: cli_args.unprocessed_data_buffer_size as usize,
     };
 
-    let mut block_reader = BlockReader::new(cli_args.immutabledb_path, &config)
+    let mut block_reader = BlockReader::new(cli_args.immutabledb_path, &config, ..)
         .await
         .expect("Block reader started");
 

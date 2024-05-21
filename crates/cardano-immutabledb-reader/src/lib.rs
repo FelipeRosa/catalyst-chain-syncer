@@ -1,6 +1,6 @@
 pub mod block_reader;
 
-use std::{collections::BTreeSet, ffi::OsStr, path::Path};
+use std::{borrow::Cow, collections::BTreeSet, ffi::OsStr, path::Path};
 
 use binary_layout::binary_layout;
 use tokio::io::AsyncReadExt;
@@ -87,7 +87,7 @@ pub struct ReadChunkFile<'a> {
 }
 
 impl<'a> ReadChunkFile<'a> {
-    async fn next(&mut self) -> anyhow::Result<Option<&[u8]>> {
+    async fn next(&mut self) -> anyhow::Result<Option<(u64, &[u8])>> {
         let next_counter = self.counter + 1;
 
         let (from, to) = match next_counter.cmp(&self.secondary_index.entries.len()) {
@@ -108,14 +108,98 @@ impl<'a> ReadChunkFile<'a> {
             }
         };
 
-        let data_slice = self.chunk_file_data.get(from..to);
+        match self.chunk_file_data.get(from..to) {
+            Some(block_bytes) => {
+                self.counter = next_counter;
+                let h: TestDecode = pallas_codec::minicbor::decode(block_bytes)?;
 
-        if data_slice.is_some() {
-            self.counter = next_counter;
-            Ok(data_slice)
-        } else {
-            Ok(None)
+                Ok(Some((h.0.slot(), block_bytes)))
+            }
+            None => Ok(None),
         }
+    }
+}
+
+#[derive(Debug)]
+struct TestDecode<'b>(pallas_traverse::MultiEraHeader<'b>);
+
+impl<'b, C> pallas_codec::minicbor::Decode<'b, C> for TestDecode<'b> {
+    fn decode(
+        d: &mut pallas_codec::minicbor::Decoder<'b>,
+        _ctx: &mut C,
+    ) -> Result<Self, pallas_codec::minicbor::decode::Error> {
+        d.array()?;
+
+        let era = d.u16()?;
+
+        let _m = d.array()?;
+
+        let header = match era {
+            0 => {
+                let header = d.decode()?;
+                pallas_traverse::MultiEraHeader::EpochBoundary(Cow::Owned(header))
+            }
+            1 => {
+                let header = d.decode()?;
+                pallas_traverse::MultiEraHeader::Byron(Cow::Owned(header))
+            }
+            2 => {
+                let header = d.decode()?;
+                pallas_traverse::MultiEraHeader::AlonzoCompatible(Cow::Owned(header))
+            }
+            6 => {
+                let header = d.decode()?;
+                pallas_traverse::MultiEraHeader::Babbage(Cow::Owned(header))
+            }
+            3 | 4 | 5 | 7 => {
+                let header = d.decode()?;
+                pallas_traverse::MultiEraHeader::AlonzoCompatible(Cow::Owned(header))
+            }
+            _ => {
+                return Err(pallas_codec::minicbor::decode::Error::message(
+                    "Invalid CBOR",
+                ))
+            }
+        };
+
+        Ok(TestDecode(header))
+    }
+}
+
+use pallas_codec::minicbor::decode::{Token, Tokenizer};
+
+use pallas_traverse::Era;
+
+#[derive(Debug)]
+pub enum Outcome {
+    Matched(Era),
+    EpochBoundary,
+    Inconclusive,
+}
+
+// Executes a very lightweight inspection of the initial tokens of the CBOR
+// block payload to extract the tag of the block wrapper which defines the era
+// of the contained bytes.
+pub fn block_era(cbor: &[u8]) -> Outcome {
+    let mut tokenizer = Tokenizer::new(cbor);
+
+    if !matches!(tokenizer.next(), Some(Ok(Token::Array(2)))) {
+        return Outcome::Inconclusive;
+    }
+
+    match tokenizer.next() {
+        Some(Ok(Token::U8(variant))) => match variant {
+            0 => Outcome::EpochBoundary,
+            1 => Outcome::Matched(Era::Byron),
+            2 => Outcome::Matched(Era::Shelley),
+            3 => Outcome::Matched(Era::Allegra),
+            4 => Outcome::Matched(Era::Mary),
+            5 => Outcome::Matched(Era::Alonzo),
+            6 => Outcome::Matched(Era::Babbage),
+            7 => Outcome::Matched(Era::Conway),
+            _ => Outcome::Inconclusive,
+        },
+        _ => Outcome::Inconclusive,
     }
 }
 
@@ -180,7 +264,7 @@ mod test {
 
         let mut last_block_no = None;
         let mut count = 0;
-        while let Some(data) = iter
+        while let Some((_, data)) = iter
             .next()
             .await
             .expect("Successfully ready block data from chunk file")

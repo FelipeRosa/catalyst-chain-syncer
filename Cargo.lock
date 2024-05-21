@@ -150,6 +150,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "binary-layout",
+ "pallas-codec",
+ "pallas-primitives",
  "pallas-traverse",
  "tokio",
  "tokio-util",
