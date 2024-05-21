@@ -1,5 +1,5 @@
 -- cardano_blocks indexes
-CREATE INDEX IF NOT EXISTS cardano_blocks_block_no ON cardano_blocks USING BTREE (block_no);
+CREATE INDEX IF NOT EXISTS cardano_blocks_block_no ON cardano_blocks USING BTREE (block_no) INCLUDE (slot_no);
 CREATE INDEX IF NOT EXISTS cardano_blocks_slot_no ON cardano_blocks USING BTREE(slot_no);
 CREATE INDEX IF NOT EXISTS cardano_blocks_block_time ON cardano_blocks USING BTREE(block_time);
 
