@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 cardano-immutabledb-reader = { workspace = true }
 catalyst-chaindata-writer = { workspace = true }
+db-util = { workspace = true }
 
 clap = { version = "4.5.4", default-features = false, features = ["derive", "help", "usage", "std"] }
 memory-stats = "1.1.0"

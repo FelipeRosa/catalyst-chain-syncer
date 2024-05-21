@@ -162,6 +162,7 @@ dependencies = [
  "cardano-immutabledb-reader",
  "catalyst-chaindata-writer",
  "clap",
+ "db-util",
  "memory-stats",
  "pallas-traverse",
  "parse-size",

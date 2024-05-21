@@ -49,7 +49,7 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
-    catalyst_chaindata_writer::create_tables_if_not_present(&cli.database_url).await?;
+    db_util::create_tables_if_not_present(&cli.database_url).await?;
 
     let mut t = Instant::now();
 
@@ -195,7 +195,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             println!("Exiting");
         }
 
-        res = catalyst_chaindata_writer::create_indexes(&cli.database_url) => {
+        res = db_util::create_indexes(&cli.database_url) => {
             res?;
             println!("Done (took {:?})", t.elapsed());
         }

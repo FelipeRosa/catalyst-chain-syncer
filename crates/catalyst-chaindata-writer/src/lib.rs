@@ -3,7 +3,6 @@ pub mod writers;
 use std::{future::Future, mem, sync::Arc};
 
 use anyhow::Result;
-use db_util::connection::Connection;
 use tokio::{
     sync::{mpsc, OwnedSemaphorePermit, Semaphore},
     task::{JoinError, JoinHandle},
@@ -12,28 +11,6 @@ use writers::{
     cardano_block::CardanoBlock, cardano_spent_txo::CardanoSpentTxo,
     cardano_transaction::CardanoTransaction, cardano_txo::CardanoTxo,
 };
-
-pub async fn create_tables_if_not_present(conn_string: &str) -> Result<()> {
-    let conn = Connection::open(conn_string).await?;
-
-    conn.client()
-        .batch_execute(include_str!("../../../sql/create_tables.sql"))
-        .await?;
-    conn.close().await?;
-
-    Ok(())
-}
-
-pub async fn create_indexes(conn_string: &str) -> Result<()> {
-    let conn = Connection::open(conn_string).await?;
-
-    conn.client()
-        .batch_execute(include_str!("../../../sql/create_indexes.sql"))
-        .await?;
-    conn.close().await?;
-
-    Ok(())
-}
 
 pub struct WriteData {
     pub block: CardanoBlock,
