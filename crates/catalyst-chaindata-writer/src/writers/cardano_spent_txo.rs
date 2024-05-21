@@ -1,32 +1,9 @@
+use catalyst_chaindata_types::CardanoSpentTxo;
 use db_util::connection::{
     tokio_postgres::{binary_copy::BinaryCopyInWriter, types::Type},
     Connection,
 };
-use pallas_traverse::MultiEraTx;
 use tokio::task::JoinError;
-
-pub struct CardanoSpentTxo {
-    from_transaction_hash: [u8; 32],
-    index: u32,
-    to_transaction_hash: [u8; 32],
-}
-
-impl CardanoSpentTxo {
-    pub fn from_transactions(txs: &[MultiEraTx]) -> anyhow::Result<Vec<Self>> {
-        let data = txs
-            .iter()
-            .flat_map(|tx| {
-                tx.inputs().into_iter().map(|tx_input| Self {
-                    from_transaction_hash: **tx_input.output_ref().hash(),
-                    index: tx_input.output_ref().index() as u32,
-                    to_transaction_hash: *tx.hash(),
-                })
-            })
-            .collect();
-
-        Ok(data)
-    }
-}
 
 pub struct Writer {
     conn: Connection,

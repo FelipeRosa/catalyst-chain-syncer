@@ -3,13 +3,10 @@ pub mod writers;
 use std::{future::Future, mem, sync::Arc};
 
 use anyhow::Result;
+use catalyst_chaindata_types::{CardanoBlock, CardanoSpentTxo, CardanoTransaction, CardanoTxo};
 use tokio::{
     sync::{mpsc, OwnedSemaphorePermit, Semaphore},
     task::{JoinError, JoinHandle},
-};
-use writers::{
-    cardano_block::CardanoBlock, cardano_spent_txo::CardanoSpentTxo,
-    cardano_transaction::CardanoTransaction, cardano_txo::CardanoTxo,
 };
 
 pub struct WriteData {
@@ -132,7 +129,7 @@ mod write_task {
             Connection::open(&conn_string).await.expect("Connection"),
         );
 
-        let mut block_buffer: Vec<cardano_block::CardanoBlock> = Vec::new();
+        let mut block_buffer = Vec::new();
         let mut tx_buffer = Vec::new();
         let mut txo_buffer = Vec::new();
         let mut spent_txo_buffer = Vec::new();

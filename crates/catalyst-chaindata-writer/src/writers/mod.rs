@@ -4,8 +4,6 @@ pub mod cardano_block;
 pub mod cardano_spent_txo;
 pub mod cardano_transaction;
 pub mod cardano_txo;
-pub mod network;
-mod serde_size;
 
 pub trait Writer {
     type In;

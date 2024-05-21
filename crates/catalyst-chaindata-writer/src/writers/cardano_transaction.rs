@@ -1,33 +1,9 @@
+use catalyst_chaindata_types::CardanoTransaction;
 use db_util::connection::{
     tokio_postgres::{binary_copy::BinaryCopyInWriter, types::Type},
     Connection,
 };
-use pallas_traverse::MultiEraBlock;
 use tokio::task::JoinError;
-
-use super::network::Network;
-
-pub struct CardanoTransaction {
-    hash: [u8; 32],
-    block_no: u64,
-    network: Network,
-}
-
-impl CardanoTransaction {
-    pub fn many_from_block(block: &MultiEraBlock, network: Network) -> anyhow::Result<Vec<Self>> {
-        let data = block
-            .txs()
-            .into_iter()
-            .map(|tx| Self {
-                hash: *tx.hash(),
-                block_no: block.number(),
-                network,
-            })
-            .collect();
-
-        Ok(data)
-    }
-}
 
 pub struct Writer {
     conn: Connection,

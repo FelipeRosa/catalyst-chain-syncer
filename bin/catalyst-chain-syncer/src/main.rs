@@ -9,12 +9,10 @@ use std::{
 };
 
 use cardano_immutabledb_reader::block_reader::{BlockReader, BlockReaderConfig};
-use catalyst_chaindata_writer::{
-    writers::{
-        cardano_block, cardano_spent_txo, cardano_transaction, cardano_txo, network::Network,
-    },
-    ChainDataWriter, ChainDataWriterHandle, WriteData,
+use catalyst_chaindata_types::{
+    CardanoBlock, CardanoSpentTxo, CardanoTransaction, CardanoTxo, Network,
 };
+use catalyst_chaindata_writer::{ChainDataWriter, ChainDataWriterHandle, WriteData};
 use clap::Parser;
 use pallas_traverse::MultiEraBlock;
 use tokio::sync::{mpsc, OwnedSemaphorePermit};
@@ -237,28 +235,24 @@ async fn process_block_bytes(
 
         let block = MultiEraBlock::decode(&block_bytes).expect("Decode");
 
-        let Ok(block_data) = cardano_block::CardanoBlock::from_block(&block, network) else {
+        let Ok(block_data) = CardanoBlock::from_block(&block, network) else {
             eprintln!("Failed to parse block");
             continue;
         };
 
-        let Ok(transaction_data) =
-            cardano_transaction::CardanoTransaction::many_from_block(&block, network)
-        else {
+        let Ok(transaction_data) = CardanoTransaction::many_from_block(&block, network) else {
             eprintln!("Failed to parse transactions");
             continue;
         };
 
         let txs = block.txs();
 
-        let Ok(transaction_outputs_data) = cardano_txo::CardanoTxo::from_transactions(&txs) else {
+        let Ok(transaction_outputs_data) = CardanoTxo::from_transactions(&txs) else {
             eprintln!("Failed to parse TXOs");
             continue;
         };
 
-        let Ok(spent_transaction_outputs_data) =
-            cardano_spent_txo::CardanoSpentTxo::from_transactions(&txs)
-        else {
+        let Ok(spent_transaction_outputs_data) = CardanoSpentTxo::from_transactions(&txs) else {
             eprintln!("Failed to parse spent TXOs");
             continue;
         };

@@ -1,43 +1,9 @@
-use anyhow::anyhow;
-use chrono::{DateTime, Utc};
-use pallas_traverse::MultiEraBlock;
-use tokio::task::JoinError;
-
+use catalyst_chaindata_types::CardanoBlock;
 use db_util::connection::{
     tokio_postgres::{binary_copy::BinaryCopyInWriter, types::Type},
     Connection,
 };
-
-use super::network::Network;
-
-#[derive(Debug, Clone, Copy)]
-pub struct CardanoBlock {
-    pub block_no: u64,
-    pub slot_no: u64,
-    pub epoch_no: u64,
-    pub network: Network,
-    pub block_time: DateTime<Utc>,
-    pub block_hash: [u8; 32],
-    pub previous_hash: Option<[u8; 32]>,
-}
-
-impl CardanoBlock {
-    pub fn from_block(block: &MultiEraBlock, network: Network) -> anyhow::Result<Self> {
-        Ok(Self {
-            block_no: block.number(),
-            slot_no: block.slot(),
-            epoch_no: block.epoch(network.genesis_values()).0,
-            network,
-            block_time: DateTime::from_timestamp(
-                block.wallclock(network.genesis_values()) as i64,
-                0,
-            )
-            .ok_or_else(|| anyhow!("Failed to parse DateTime from timestamp"))?,
-            block_hash: *block.hash(),
-            previous_hash: block.header().previous_hash().as_ref().map(|h| **h),
-        })
-    }
-}
+use tokio::task::JoinError;
 
 pub struct Writer {
     conn: Connection,
