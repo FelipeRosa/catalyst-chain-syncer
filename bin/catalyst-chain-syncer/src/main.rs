@@ -122,7 +122,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut ticker = tokio::time::interval(Duration::from_secs(1));
     let mut i = 0;
-    let mut create_indexes = true;
+    let mut ctrl_c = false;
 
     loop {
         tokio::select! {
@@ -133,7 +133,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 drop(reader);
                 drop(processing_workers_txs);
 
-                create_indexes = false;
+                ctrl_c = true;
 
                 break;
             }
@@ -174,13 +174,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     writer.await?;
     println!("Finished syncing immutabledb data ({:?})", t.elapsed());
 
-    if create_indexes {
+    if !ctrl_c {
         println!("Creating indexes...");
 
         t = Instant::now();
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 println!("Exiting");
+                ctrl_c = true;
             }
 
             res = pg_conn.create_indexes() => {
@@ -190,7 +191,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    pg_conn.close().await?;
+    if !ctrl_c {
+        pg_conn.close().await?;
+    }
 
     Ok(())
 }

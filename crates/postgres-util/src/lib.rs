@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use catalyst_chaindata_recover::Recoverer;
 use catalyst_chaindata_types::{CardanoBlock, CardanoSpentTxo, CardanoTransaction, CardanoTxo};
 use catalyst_chaindata_writer::{WriteData, Writer};
@@ -116,9 +118,10 @@ impl Writer for Connection {
         Ok(())
     }
 
-    async fn close(self) -> anyhow::Result<()> {
-        self.conn_task_handle.await?;
-        Ok(())
+    fn close(self) -> impl Future<Output = anyhow::Result<()>> {
+        let join_handle = self.conn_task_handle;
+
+        async move { join_handle.await.map_err(|err| anyhow::anyhow!(err)) }
     }
 }
 
