@@ -1,5 +1,3 @@
-pub mod writers;
-
 use std::{future::Future, mem, sync::Arc};
 
 use anyhow::Result;
@@ -42,6 +40,8 @@ pub trait Writer {
         &mut self,
         data: Vec<WriteData>,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
+
+    fn close(self) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
 #[derive(Clone)]

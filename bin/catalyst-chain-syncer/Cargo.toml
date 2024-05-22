@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 cardano-immutabledb-reader = { workspace = true }
+catalyst-chaindata-recover = { workspace = true }
 catalyst-chaindata-types = { workspace = true }
 catalyst-chaindata-writer = { workspace = true }
 postgres-util = { workspace = true }

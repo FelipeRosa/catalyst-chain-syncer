@@ -9,12 +9,11 @@ use std::{
 };
 
 use cardano_immutabledb_reader::block_reader::{BlockReader, BlockReaderConfig};
+use catalyst_chaindata_recover::Recoverer as _;
 use catalyst_chaindata_types::{
     CardanoBlock, CardanoSpentTxo, CardanoTransaction, CardanoTxo, Network,
 };
-use catalyst_chaindata_writer::{
-    writers::postgres::PostgresWriter, ChainDataWriter, ChainDataWriterHandle, WriteData,
-};
+use catalyst_chaindata_writer::{ChainDataWriter, ChainDataWriterHandle, WriteData, Writer as _};
 use clap::Parser;
 use pallas_traverse::MultiEraBlock;
 use tokio::sync::{mpsc, OwnedSemaphorePermit};
@@ -49,8 +48,8 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
-    postgres_util::create_tables_if_not_present(&cli.database_url).await?;
-    let pg_writer = PostgresWriter::open(&cli.database_url).await?;
+    let pg_writer = postgres_util::Connection::open(&cli.database_url).await?;
+    pg_writer.create_tables_if_not_present().await?;
 
     let (writer, writer_handle) =
         ChainDataWriter::new(pg_writer, cli.write_worker_buffer_size as usize).await?;
@@ -90,47 +89,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut t = Instant::now();
     println!("Checking synced chain data...");
 
-    let (missing_data_ranges, latest_slot) = {
-        let conn = postgres_util::connection::Connection::open(&cli.database_url).await?;
+    let mut pg_conn = postgres_util::Connection::open(&cli.database_url).await?;
 
-        let rows = conn
-            .client()
-            .query(
-                include_str!("../../../crates/postgres-util/sql/find_missing_data.sql"),
-                &[],
-            )
-            .await?;
+    let (missing_slot_ranges, latest_slot) = {
+        let missing_slot_ranges = pg_conn.get_missing_slot_ranges().await?;
+        let latest_slot = pg_conn.get_latest_slot().await?;
 
-        let mut missing_data_ranges = Vec::new();
-        for row in rows {
-            let start_slot_no = row.get::<_, i64>(0) as u64;
-            let end_slot_no = row.get::<_, i64>(1) as u64;
-
-            missing_data_ranges.push((start_slot_no + 1)..end_slot_no);
-        }
-
-        let row = conn
-            .client()
-            .query_opt(
-                include_str!("../../../crates/postgres-util/sql/latest_slot.sql"),
-                &[],
-            )
-            .await?;
-
-        let latest_slot = match row {
-            Some(row) => row.get::<_, i64>(0) as u64,
-            None => 0,
-        };
-
-        conn.close().await?;
-
-        (missing_data_ranges, latest_slot)
+        (missing_slot_ranges, latest_slot)
     };
 
-    if !missing_data_ranges.is_empty() {
+    if !missing_slot_ranges.is_empty() {
         println!("Found missing data ranges. Recovering.");
 
-        for r in missing_data_ranges {
+        for r in missing_slot_ranges {
             println!("Recovering range {r:?}");
             let mut reader =
                 BlockReader::new(cli.immutabledb_path.clone(), &reader_config, r).await?;
@@ -205,18 +176,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     if create_indexes {
         println!("Creating indexes...");
+
         t = Instant::now();
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 println!("Exiting");
             }
 
-            res = postgres_util::create_indexes(&cli.database_url) => {
+            res = pg_conn.create_indexes() => {
                 res?;
                 println!("Done (took {:?})", t.elapsed());
             }
         }
     }
+
+    pg_conn.close().await?;
 
     Ok(())
 }

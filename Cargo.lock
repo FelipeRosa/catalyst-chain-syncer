@@ -161,6 +161,7 @@ name = "catalyst-chain-syncer"
 version = "0.1.0"
 dependencies = [
  "cardano-immutabledb-reader",
+ "catalyst-chaindata-recover",
  "catalyst-chaindata-types",
  "catalyst-chaindata-writer",
  "clap",
@@ -169,6 +170,13 @@ dependencies = [
  "parse-size",
  "postgres-util",
  "tokio",
+]
+
+[[package]]
+name = "catalyst-chaindata-recover"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
 ]
 
 [[package]]
@@ -190,7 +198,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "catalyst-chaindata-types",
- "postgres-util",
  "tokio",
 ]
 
@@ -816,6 +823,9 @@ name = "postgres-util"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "catalyst-chaindata-recover",
+ "catalyst-chaindata-types",
+ "catalyst-chaindata-writer",
  "tokio",
  "tokio-postgres",
 ]
