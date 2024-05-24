@@ -48,7 +48,7 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
-    let mut pg_conn = postgres_util::Connection::open(&cli.database_url).await?;
+    let mut pg_conn = postgres_store::Connection::open(&cli.database_url).await?;
     pg_conn.create_tables_if_not_present().await?;
 
     // Stats
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut writers = Vec::new();
 
     for _ in 0..cli.processing_workers_count {
-        let pg_writer_conn = postgres_util::Connection::open(&cli.database_url).await?;
+        let pg_writer_conn = postgres_store::Connection::open(&cli.database_url).await?;
 
         let (writer, writer_handle) =
             ChainDataWriter::new(pg_writer_conn, cli.write_worker_buffer_size as usize).await?;

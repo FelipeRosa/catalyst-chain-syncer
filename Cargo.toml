@@ -8,15 +8,15 @@ members = [
     "crates/catalyst-chaindata-recover",
     "crates/catalyst-chaindata-types",
     "crates/catalyst-chaindata-writer",
-    "crates/postgres-util",
+    "crates/postgres-store",
 ]
 
 [workspace.dependencies]
-postgres-util = { path = "crates/postgres-util" }
 cardano-immutabledb-reader = { path = "crates/cardano-immutabledb-reader" }
 catalyst-chaindata-recover = { path = "crates/catalyst-chaindata-recover" }
 catalyst-chaindata-types = { path = "crates/catalyst-chaindata-types" }
 catalyst-chaindata-writer = { path = "crates/catalyst-chaindata-writer" }
+postgres-store = { path = "crates/postgres-store" }
 
 anyhow = "1.0.83"
 chrono = "0.4.38"

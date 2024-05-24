@@ -55,10 +55,7 @@ impl Recoverer for Connection {
     ) -> anyhow::Result<Vec<catalyst_chaindata_recover::SlotRange>> {
         let rows = self
             .client()
-            .query(
-                include_str!("../../../crates/postgres-util/sql/find_missing_data.sql"),
-                &[],
-            )
+            .query(include_str!("../sql/find_missing_data.sql"), &[])
             .await?;
 
         let mut missing_data_ranges = Vec::new();
@@ -75,10 +72,7 @@ impl Recoverer for Connection {
     async fn get_latest_slot(&mut self) -> anyhow::Result<u64> {
         let row = self
             .client()
-            .query_opt(
-                include_str!("../../../crates/postgres-util/sql/latest_slot.sql"),
-                &[],
-            )
+            .query_opt(include_str!("../sql/latest_slot.sql"), &[])
             .await?;
 
         let latest_slot = match row {

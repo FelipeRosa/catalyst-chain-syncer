@@ -8,7 +8,7 @@ cardano-immutabledb-reader = { workspace = true }
 catalyst-chaindata-recover = { workspace = true }
 catalyst-chaindata-types = { workspace = true }
 catalyst-chaindata-writer = { workspace = true }
-postgres-util = { workspace = true }
+postgres-store = { workspace = true }
 
 clap = { version = "4.5.4", default-features = false, features = ["derive", "help", "usage", "std"] }
 memory-stats = "1.1.0"

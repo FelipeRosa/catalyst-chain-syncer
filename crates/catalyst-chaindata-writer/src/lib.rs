@@ -191,5 +191,7 @@ mod write_task {
                 break;
             }
         }
+
+        writer.close().await.expect("Writer close");
     }
 }

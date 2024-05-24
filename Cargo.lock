@@ -168,7 +168,7 @@ dependencies = [
  "memory-stats",
  "pallas-traverse",
  "parse-size",
- "postgres-util",
+ "postgres-store",
  "tokio",
 ]
 
@@ -805,6 +805,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "postgres-store"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "catalyst-chaindata-recover",
+ "catalyst-chaindata-types",
+ "catalyst-chaindata-writer",
+ "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
 name = "postgres-types"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -816,18 +828,6 @@ dependencies = [
  "postgres-protocol",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "postgres-util"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "catalyst-chaindata-recover",
- "catalyst-chaindata-types",
- "catalyst-chaindata-writer",
- "tokio",
- "tokio-postgres",
 ]
 
 [[package]]
