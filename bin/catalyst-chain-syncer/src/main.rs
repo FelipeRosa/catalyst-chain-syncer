@@ -36,11 +36,11 @@ struct Cli {
     read_workers_count: usize,
     #[clap(long, value_parser = parse_byte_size, default_value = "128MiB")]
     read_worker_buffer_size: u64,
-    #[clap(long, value_parser = parse_byte_size, default_value = "256MiB")]
+    #[clap(long, value_parser = parse_byte_size, default_value = "64MiB")]
     unprocessed_data_buffer_size: u64,
     #[clap(long, default_value_t = 1)]
     processing_workers_count: usize,
-    #[clap(long, value_parser = parse_byte_size, default_value = "256MiB")]
+    #[clap(long, value_parser = parse_byte_size, default_value = "32MiB")]
     write_worker_buffer_size: u64,
 }
 
@@ -48,11 +48,8 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
-    let pg_writer = postgres_util::Connection::open(&cli.database_url).await?;
-    pg_writer.create_tables_if_not_present().await?;
-
-    let (writer, writer_handle) =
-        ChainDataWriter::new(pg_writer, cli.write_worker_buffer_size as usize).await?;
+    let mut pg_conn = postgres_util::Connection::open(&cli.database_url).await?;
+    pg_conn.create_tables_if_not_present().await?;
 
     // Stats
     let latest_block_number = Arc::new(AtomicU64::new(0));
@@ -61,24 +58,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let processed_byte_count = Arc::new(AtomicU64::new(0));
 
     let mut processing_workers_txs = Vec::new();
+    let mut writers = Vec::new();
 
     for _ in 0..cli.processing_workers_count {
+        let pg_writer_conn = postgres_util::Connection::open(&cli.database_url).await?;
+
+        let (writer, writer_handle) =
+            ChainDataWriter::new(pg_writer_conn, cli.write_worker_buffer_size as usize).await?;
+        writers.push(writer);
+
         let (block_data_tx, block_data_rx) = mpsc::unbounded_channel::<(_, Vec<_>)>();
         processing_workers_txs.push(block_data_tx);
 
         tokio::task::spawn(process_block_bytes(
             block_data_rx,
             cli.network,
-            writer_handle.clone(),
+            writer_handle,
             read_byte_count.clone(),
             processed_byte_count.clone(),
             latest_block_number.clone(),
             latest_slot_number.clone(),
         ));
     }
-
-    // Drop extra writer handle since all workers have a reference to that now
-    drop(writer_handle);
 
     let reader_config = BlockReaderConfig {
         worker_read_buffer_byte_size: cli.read_worker_buffer_size as usize,
@@ -88,8 +89,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut t = Instant::now();
     println!("Checking synced chain data...");
-
-    let mut pg_conn = postgres_util::Connection::open(&cli.database_url).await?;
 
     let (missing_slot_ranges, latest_slot) = {
         let missing_slot_ranges = pg_conn.get_missing_slot_ranges().await?;
@@ -169,9 +168,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // Wait for the chain data writer to flush all data to postgres
-    println!("Waiting writer...");
-    writer.await?;
+    // Wait for the chain data writers to flush all data to postgres
+    println!("Waiting writers...");
+    for writer in writers {
+        writer.await?;
+    }
     println!("Finished syncing immutabledb data ({:?})", t.elapsed());
 
     if !ctrl_c {
