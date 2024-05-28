@@ -185,7 +185,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 ctrl_c = true;
             }
 
-            res = pg_conn.create_indexes() => {
+            res = pg_conn.create_indexes_if_not_present() => {
                 res?;
                 println!("Done (took {:?})", t.elapsed());
             }

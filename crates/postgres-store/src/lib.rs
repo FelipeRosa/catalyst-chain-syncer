@@ -40,7 +40,7 @@ impl Connection {
         Ok(())
     }
 
-    pub async fn create_indexes(&self) -> anyhow::Result<()> {
+    pub async fn create_indexes_if_not_present(&self) -> anyhow::Result<()> {
         self.client()
             .batch_execute(include_str!("../sql/create_indexes.sql"))
             .await?;
