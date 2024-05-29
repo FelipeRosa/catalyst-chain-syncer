@@ -5,9 +5,13 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
+cryptoxide = { version = "0.4.4", default-features = false, features = ["blake2", "ed25519"] }
 chrono = { workspace = true }
 lazy_static = { workspace = true }
+minicbor = { version = "0.24.0", features = ["derive", "alloc"] }
 pallas-addresses = { workspace = true }
+pallas-codec = { workspace = true }
+pallas-primitives = { workspace = true }
 pallas-traverse = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true, features = ["derive", "std"] }

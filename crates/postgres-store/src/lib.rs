@@ -1,7 +1,10 @@
 use std::future::Future;
 
 use catalyst_chaindata_recover::Recoverer;
-use catalyst_chaindata_types::{CardanoBlock, CardanoSpentTxo, CardanoTransaction, CardanoTxo};
+use catalyst_chaindata_types::{
+    CardanoBlock, CardanoSpentTxo, CardanoTransaction, CardanoTxo, CatalystRegistration,
+    CatalystRegistrationVotingKey,
+};
 use catalyst_chaindata_writer::{WriteData, Writer};
 use tokio_postgres::{binary_copy::BinaryCopyInWriter, types::Type};
 
@@ -90,12 +93,14 @@ impl Writer for Connection {
         let mut transactions = Vec::new();
         let mut txos = Vec::new();
         let mut spent_txos = Vec::new();
+        let mut registrations = Vec::new();
 
         for d in data {
             blocks.push(d.block);
             transactions.extend(d.transactions);
             txos.extend(d.transaction_outputs);
             spent_txos.extend(d.spent_transaction_outputs);
+            registrations.extend(d.catalyst_registrations);
         }
 
         let tx = self.client_mut().transaction().await?;
@@ -104,7 +109,8 @@ impl Writer for Connection {
             copy_blocks(&tx, &blocks),
             copy_transactions(&tx, &transactions),
             copy_txos(&tx, &txos),
-            copy_spent_txos(&tx, &spent_txos)
+            copy_spent_txos(&tx, &spent_txos),
+            copy_registrations(&tx, &registrations)
         )?;
 
         tx.commit().await?;
@@ -245,6 +251,63 @@ async fn copy_spent_txos(
                 &spent_txo_data.from_transaction_hash.as_slice(),
                 &(spent_txo_data.index as i32),
                 &spent_txo_data.to_transaction_hash.as_slice(),
+            ])
+            .await
+            .expect("WRITE");
+    }
+
+    writer.finish().await.expect("FINISH");
+
+    Ok(())
+}
+
+async fn copy_registrations(
+    tx: &tokio_postgres::Transaction<'_>,
+    data: &[CatalystRegistration],
+) -> anyhow::Result<()> {
+    let sink = tx.copy_in("COPY catalyst_registrations (transaction_hash, voting_key, voting_key_weight, stake_public_key, stake_credential, payment_address, nonce, voting_purpose) FROM STDIN BINARY")
+        .await
+        .expect("COPY");
+    let writer = BinaryCopyInWriter::new(
+        sink,
+        &[
+            Type::BYTEA,
+            Type::BYTEA_ARRAY,
+            Type::INT4_ARRAY,
+            Type::BYTEA,
+            Type::BYTEA,
+            Type::BYTEA,
+            Type::INT8,
+            Type::INT4,
+        ],
+    );
+    tokio::pin!(writer);
+
+    for registration_data in data {
+        let (voting_keys, voting_key_weights) = match &registration_data.voting_key {
+            CatalystRegistrationVotingKey::Legacy(vk) => (vec![vk.as_slice()], vec![1]),
+            CatalystRegistrationVotingKey::Delegations(ds) => {
+                let voting_keys = ds.iter().map(|d| d.0.as_slice()).collect();
+                let voting_key_weights = ds.iter().map(|d| d.1 as i32).collect();
+
+                (voting_keys, voting_key_weights)
+            }
+        };
+
+        writer
+            .as_mut()
+            .write(&[
+                &registration_data.transaction_hash.as_slice(),
+                &voting_keys,
+                &voting_key_weights,
+                &registration_data.stake_public_key.as_slice(),
+                &registration_data.stake_credential.as_slice(),
+                &registration_data.payment_address.as_slice(),
+                &(registration_data.nonce as i64),
+                &registration_data
+                    .voting_purpose
+                    .map(|vp| vp as i32)
+                    .unwrap_or_default(),
             ])
             .await
             .expect("WRITE");

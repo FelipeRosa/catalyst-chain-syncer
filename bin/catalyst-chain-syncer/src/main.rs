@@ -225,6 +225,17 @@ async fn process_block_bytes(
 
         let txs = block.txs();
 
+        let mut catalyst_registrations_data = Vec::new();
+        for tx in &txs {
+            let Ok(Some(reg)) =
+                catalyst_chaindata_types::CatalystRegistration::from_transaction(tx, network)
+            else {
+                continue;
+            };
+
+            catalyst_registrations_data.push(reg);
+        }
+
         let Ok(transaction_outputs_data) = CardanoTxo::from_transactions(&txs) else {
             eprintln!("Failed to parse TXOs");
             continue;
@@ -240,6 +251,7 @@ async fn process_block_bytes(
             transactions: transaction_data,
             transaction_outputs: transaction_outputs_data,
             spent_transaction_outputs: spent_transaction_outputs_data,
+            catalyst_registrations: catalyst_registrations_data,
         };
 
         // Update stats

@@ -14,3 +14,7 @@ CREATE INDEX IF NOT EXISTS cardano_txo_stake_credential ON cardano_txo USING BTR
 -- cardano_spent_txo indexes
 CREATE INDEX IF NOT EXISTS cardano_spent_txo_output_ref ON cardano_spent_txo USING BTREE(from_transaction_hash, index);
 CREATE INDEX IF NOT EXISTS cardano_spent_txo_to_transaction_hash ON cardano_spent_txo USING BTREE(to_transaction_hash);
+
+-- catalyst_registrations
+CREATE INDEX IF NOT EXISTS catalyst_registrations_transaction_hash ON catalyst_registrations USING BTREE(transaction_hash);
+CREATE INDEX IF NOT EXISTS catalyst_registrations_stake_credential ON catalyst_registrations USING BTREE(stake_credential);

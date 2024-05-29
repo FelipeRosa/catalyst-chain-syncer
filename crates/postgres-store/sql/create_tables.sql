@@ -37,3 +37,16 @@ CREATE TABLE IF NOT EXISTS cardano_spent_txo (
     index                 INTEGER NOT NULL,
     to_transaction_hash   BYTEA NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS catalyst_registrations (
+    transaction_hash  BYTEA NOT NULL,
+    voting_key        BYTEA ARRAY NOT NULL,
+    voting_key_weight INTEGER ARRAY NOT NULL,
+    stake_public_key  BYTEA NOT NULL,
+    -- blake2b hash of the stake_public_key column.
+    -- This allows joining this table with the cardano_txo table.
+    stake_credential  BYTEA NOT NULL,
+    payment_address   BYTEA NOT NULL,
+    nonce             BIGINT NOT NULL,
+    voting_purpose    INTEGER NOT NULL
+);

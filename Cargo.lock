@@ -185,8 +185,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "cryptoxide",
  "lazy_static",
+ "minicbor 0.24.0",
  "pallas-addresses",
+ "pallas-codec",
+ "pallas-primitives",
  "pallas-traverse",
  "serde",
  "serde_json",
@@ -573,7 +577,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d15f4203d71fdf90903c2696e55426ac97a363c67b218488a73b534ce7aca10"
 dependencies = [
  "half",
- "minicbor-derive",
+ "minicbor-derive 0.13.0",
+]
+
+[[package]]
+name = "minicbor"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a1359d4b3ec786cdc1e44382c8c0e10965d95a173059590f62314c73be72969"
+dependencies = [
+ "minicbor-derive 0.15.0",
 ]
 
 [[package]]
@@ -585,6 +598,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "minicbor-derive"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6bdc119b1a405df86a8cde673295114179dbd0ebe18877c26ba89fb080365c2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -664,7 +688,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "357301a71c685b3c586defca1aaea59da46fb397c1b960c8487277adf0c346a1"
 dependencies = [
  "hex",
- "minicbor",
+ "minicbor 0.20.0",
  "serde",
  "thiserror",
 ]

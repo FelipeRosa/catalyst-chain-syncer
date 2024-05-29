@@ -1,7 +1,10 @@
 use std::{future::Future, mem, sync::Arc};
 
 use anyhow::Result;
-use catalyst_chaindata_types::{CardanoBlock, CardanoSpentTxo, CardanoTransaction, CardanoTxo};
+use catalyst_chaindata_types::{
+    CardanoBlock, CardanoSpentTxo, CardanoTransaction, CardanoTxo, CatalystRegistration,
+    CatalystRegistrationVotingKey,
+};
 use tokio::{
     sync::{mpsc, OwnedSemaphorePermit, Semaphore},
     task::{JoinError, JoinHandle},
@@ -12,6 +15,7 @@ pub struct WriteData {
     pub transactions: Vec<CardanoTransaction>,
     pub transaction_outputs: Vec<CardanoTxo>,
     pub spent_transaction_outputs: Vec<CardanoSpentTxo>,
+    pub catalyst_registrations: Vec<CatalystRegistration>,
 }
 
 impl WriteData {
@@ -31,6 +35,22 @@ impl WriteData {
                 .spent_transaction_outputs
                 .iter()
                 .map(mem::size_of_val)
+                .sum::<usize>()
+            + self
+                .catalyst_registrations
+                .iter()
+                .map(|reg| {
+                    let voting_key_or_delegations_size = match &reg.voting_key {
+                        CatalystRegistrationVotingKey::Legacy(vk) => mem::size_of_val(vk),
+                        CatalystRegistrationVotingKey::Delegations(ds) => {
+                            ds.iter().map(mem::size_of_val).sum()
+                        }
+                    };
+
+                    let payment_address_size = reg.payment_address.len();
+
+                    mem::size_of_val(reg) + voting_key_or_delegations_size + payment_address_size
+                })
                 .sum::<usize>()
     }
 }
