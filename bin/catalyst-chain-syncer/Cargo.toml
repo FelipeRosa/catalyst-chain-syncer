@@ -10,8 +10,16 @@ catalyst-chaindata-types = { workspace = true }
 catalyst-chaindata-writer = { workspace = true }
 postgres-store = { workspace = true }
 
+anyhow = { workspace = true }
+axum = "0.7.5"
 clap = { version = "4.5.4", default-features = false, features = ["derive", "help", "usage", "std"] }
 memory-stats = "1.1.0"
 pallas-traverse = { workspace = true }
 parse-size = "1.0.0"
+serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tower-http = { version = "0.5.2", features = ["timeout", "trace"] }
+serde_with = { version = "3.8.1", features = ["hex"] }

@@ -11,3 +11,5 @@ catalyst-chaindata-writer = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["macros", "rt"] }
 tokio-postgres = { workspace = true }
+bb8 = { version = "0.8.3", default-features = false }
+bb8-postgres = { version = "0.8.1", default-features = false, features = ["with-chrono-0_4", "with-serde_json-1"] }

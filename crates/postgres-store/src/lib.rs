@@ -8,12 +8,45 @@ use catalyst_chaindata_types::{
 use catalyst_chaindata_writer::{WriteData, Writer};
 use tokio_postgres::{binary_copy::BinaryCopyInWriter, types::Type};
 
-pub struct Connection {
-    client: tokio_postgres::Client,
-    conn_task_handle: tokio::task::JoinHandle<()>,
+pub struct ConnectionPool {
+    inner: bb8::Pool<bb8_postgres::PostgresConnectionManager<tokio_postgres::NoTls>>,
 }
 
-impl Connection {
+impl ConnectionPool {
+    pub async fn new(conn_string: &str) -> anyhow::Result<Self> {
+        let mngr = bb8_postgres::PostgresConnectionManager::new_from_stringlike(
+            conn_string,
+            tokio_postgres::NoTls,
+        )?;
+
+        let inner = bb8::Pool::builder().build(mngr).await?;
+
+        Ok(Self { inner })
+    }
+
+    pub async fn get(&self) -> anyhow::Result<Connection> {
+        let pooled_conn = self.inner.get().await?;
+
+        Ok(Connection {
+            inner: ConnectionInner::PooledConnection(pooled_conn),
+            conn_task_handle: None,
+        })
+    }
+}
+
+enum ConnectionInner<'a> {
+    Client(tokio_postgres::Client),
+    PooledConnection(
+        bb8::PooledConnection<'a, bb8_postgres::PostgresConnectionManager<tokio_postgres::NoTls>>,
+    ),
+}
+
+pub struct Connection<'a> {
+    inner: ConnectionInner<'a>,
+    conn_task_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl<'a> Connection<'a> {
     pub async fn open(conn_string: &str) -> anyhow::Result<Self> {
         let (client, conn) = tokio_postgres::connect(conn_string, tokio_postgres::NoTls).await?;
 
@@ -22,17 +55,23 @@ impl Connection {
         });
 
         Ok(Self {
-            client,
-            conn_task_handle,
+            inner: ConnectionInner::Client(client),
+            conn_task_handle: Some(conn_task_handle),
         })
     }
 
     pub fn client(&self) -> &tokio_postgres::Client {
-        &self.client
+        match &self.inner {
+            ConnectionInner::Client(client) => client,
+            ConnectionInner::PooledConnection(conn) => conn,
+        }
     }
 
     pub fn client_mut(&mut self) -> &mut tokio_postgres::Client {
-        &mut self.client
+        match &mut self.inner {
+            ConnectionInner::Client(client) => client,
+            ConnectionInner::PooledConnection(pooled_conn) => pooled_conn,
+        }
     }
 
     pub async fn create_tables_if_not_present(&self) -> anyhow::Result<()> {
@@ -52,7 +91,7 @@ impl Connection {
     }
 }
 
-impl Recoverer for Connection {
+impl<'a> Recoverer for Connection<'a> {
     async fn get_missing_slot_ranges(
         &mut self,
     ) -> anyhow::Result<Vec<catalyst_chaindata_recover::SlotRange>> {
@@ -87,7 +126,7 @@ impl Recoverer for Connection {
     }
 }
 
-impl Writer for Connection {
+impl<'a> Writer for Connection<'a> {
     async fn batch_write(&mut self, data: Vec<WriteData>) -> anyhow::Result<()> {
         let mut blocks = Vec::new();
         let mut transactions = Vec::new();
@@ -121,7 +160,13 @@ impl Writer for Connection {
     fn close(self) -> impl Future<Output = anyhow::Result<()>> {
         let join_handle = self.conn_task_handle;
 
-        async move { join_handle.await.map_err(|err| anyhow::anyhow!(err)) }
+        async move {
+            if let Some(join_handle) = join_handle {
+                join_handle.await.map_err(|err| anyhow::anyhow!(err))
+            } else {
+                Ok(())
+            }
+        }
     }
 }
 

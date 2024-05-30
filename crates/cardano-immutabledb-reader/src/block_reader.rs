@@ -29,7 +29,7 @@ impl Default for BlockReaderConfig {
 }
 
 pub struct BlockReader {
-    _cancellation_token: CancellationToken,
+    _cancellation_token_drop_guard: tokio_util::sync::DropGuard,
     read_data_rx: mpsc::UnboundedReceiver<(OwnedSemaphorePermit, Vec<u8>)>,
 }
 
@@ -113,7 +113,7 @@ impl BlockReader {
         }
 
         Ok(Self {
-            _cancellation_token: cancellation_token,
+            _cancellation_token_drop_guard: cancellation_token.drop_guard(),
             read_data_rx,
         })
     }

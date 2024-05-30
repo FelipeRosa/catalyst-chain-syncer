@@ -1,5 +1,8 @@
+mod server;
+
 use std::{
     error::Error,
+    net::SocketAddr,
     path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering::Acquire},
@@ -17,6 +20,7 @@ use catalyst_chaindata_writer::{ChainDataWriter, ChainDataWriterHandle, WriteDat
 use clap::Parser;
 use pallas_traverse::MultiEraBlock;
 use tokio::sync::{mpsc, OwnedSemaphorePermit};
+use tracing::{info, warn};
 
 fn parse_byte_size(s: &str) -> Result<u64, String> {
     parse_size::parse_size(s).map_err(|e| e.to_string())
@@ -42,11 +46,24 @@ struct Cli {
     processing_workers_count: usize,
     #[clap(long, value_parser = parse_byte_size, default_value = "32MiB")]
     write_worker_buffer_size: u64,
+
+    #[clap(long, default_value = "127.0.0.1:8080")]
+    api_listen_address: SocketAddr,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing::level_filters::LevelFilter::INFO.into())
+                .from_env()?,
+        )
+        .init();
+
     let cli = Cli::parse();
+
+    let mut server_handle = server::start(cli.api_listen_address, &cli.database_url).await?;
 
     let mut pg_conn = postgres_store::Connection::open(&cli.database_url).await?;
     pg_conn.create_tables_if_not_present().await?;
@@ -88,7 +105,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let mut t = Instant::now();
-    println!("Checking synced chain data...");
+    info!("Checking synced chain data...");
 
     let (missing_slot_ranges, latest_slot) = {
         let missing_slot_ranges = pg_conn.get_missing_slot_ranges().await?;
@@ -98,10 +115,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     if !missing_slot_ranges.is_empty() {
-        println!("Found missing data ranges. Recovering.");
+        info!("Found missing data ranges. Recovering.");
 
         for r in missing_slot_ranges {
-            println!("Recovering range {r:?}");
+            info!("Recovering range {r:?}");
             let mut reader =
                 BlockReader::new(cli.immutabledb_path.clone(), &reader_config, r).await?;
 
@@ -113,7 +130,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    println!("Done (took {:?})", t.elapsed());
+    info!("Done (took {:?})", t.elapsed());
 
     t = Instant::now();
     let mut reader =
@@ -126,7 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                println!("Stopping block readers and processing workers...");
+                info!("Stopping block readers and processing workers...");
 
                 // TODO: Do this in a better way
                 drop(reader);
@@ -156,7 +173,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ = ticker.tick() => {
                 let mem_usage = memory_stats::memory_stats().map(|s| s.physical_mem).unwrap_or(0);
 
-                println!(
+                info!(
                     "BLOCK {} | SLOT {} | READ {} MB/s | PROCESSED {} MB/s | MEMORY USAGE {} MB",
                     latest_block_number.load(Acquire),
                     latest_slot_number.load(Acquire),
@@ -169,32 +186,45 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Wait for the chain data writers to flush all data to postgres
-    println!("Waiting writers...");
+    info!("Waiting writers...");
     for writer in writers {
         writer.await?;
     }
-    println!("Finished syncing immutabledb data ({:?})", t.elapsed());
+    info!("Finished syncing immutabledb data ({:?})", t.elapsed());
 
-    if !ctrl_c {
-        println!("Creating indexes...");
+    if ctrl_c {
+        return Ok(());
+    }
 
-        t = Instant::now();
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                println!("Exiting");
-                ctrl_c = true;
-            }
+    info!("Creating indexes...");
+    t = Instant::now();
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            info!("Exiting");
+            ctrl_c = true;
+        }
 
-            res = pg_conn.create_indexes_if_not_present() => {
-                res?;
-                println!("Done (took {:?})", t.elapsed());
-            }
+        res = pg_conn.create_indexes_if_not_present() => {
+            res?;
+            info!("Done (took {:?})", t.elapsed());
         }
     }
 
-    if !ctrl_c {
-        pg_conn.close().await?;
+    if ctrl_c {
+        return Ok(());
     }
+
+    pg_conn.close().await?;
+
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            info!("Exiting");
+        }
+
+        _ = &mut server_handle => {}
+    }
+
+    server_handle.shutdown().await?;
 
     Ok(())
 }
@@ -214,12 +244,12 @@ async fn process_block_bytes(
         let block = MultiEraBlock::decode(&block_bytes).expect("Decode");
 
         let Ok(block_data) = CardanoBlock::from_block(&block, network) else {
-            eprintln!("Failed to parse block");
+            warn!("Failed to parse block");
             continue;
         };
 
         let Ok(transaction_data) = CardanoTransaction::many_from_block(&block, network) else {
-            eprintln!("Failed to parse transactions");
+            warn!("Failed to parse transactions");
             continue;
         };
 
@@ -237,12 +267,12 @@ async fn process_block_bytes(
         }
 
         let Ok(transaction_outputs_data) = CardanoTxo::from_transactions(&txs) else {
-            eprintln!("Failed to parse TXOs");
+            warn!("Failed to parse TXOs");
             continue;
         };
 
         let Ok(spent_transaction_outputs_data) = CardanoSpentTxo::from_transactions(&txs) else {
-            eprintln!("Failed to parse spent TXOs");
+            warn!("Failed to parse spent TXOs");
             continue;
         };
 

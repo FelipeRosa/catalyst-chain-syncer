@@ -8,3 +8,4 @@ catalyst-chaindata-types = { workspace = true }
 
 anyhow = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+tracing = { workspace = true }

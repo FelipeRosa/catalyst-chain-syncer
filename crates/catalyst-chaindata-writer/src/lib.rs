@@ -134,6 +134,7 @@ mod write_task {
     use std::time::Duration;
 
     use tokio::sync::{mpsc, OwnedSemaphorePermit};
+    use tracing::info;
 
     use crate::{WriteData, Writer};
 
@@ -188,7 +189,7 @@ mod write_task {
             }
 
             if (flush && total_byte_count > 0) || total_byte_count >= write_buffer_byte_size {
-                println!(
+                info!(
                     "WRITING {} | SIZE {:.2} MB",
                     latest_block,
                     (total_byte_count as f64) / (1024.0 * 1024.0),

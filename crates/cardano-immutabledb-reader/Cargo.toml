@@ -9,7 +9,7 @@ binary-layout = "4.0.2"
 pallas-codec = { workspace = true }
 pallas-traverse = { workspace = true }
 tokio = { workspace = true, features = ["fs", "macros", "io-util", "sync", "rt"] }
-tokio-util = "0.7.11"
+tokio-util = { workspace = true }
 
 [dev-dependencies]
 pallas-traverse = { workspace = true }
