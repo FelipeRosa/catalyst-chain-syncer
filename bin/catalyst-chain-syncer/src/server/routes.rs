@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 use serde_with::{hex::Hex, serde_as};
 use tracing::error;
 
+fn default_allow_multi_delegations() -> bool {
+    true
+}
+
 #[serde_as]
 #[derive(Deserialize)]
 pub struct RegistrationsQueryParams {
@@ -17,6 +21,8 @@ pub struct RegistrationsQueryParams {
     #[serde_as(as = "Option<Hex>")]
     pub stake_credential: Option<[u8; 28]>,
     pub max_slot: Option<u64>,
+    #[serde(default = "default_allow_multi_delegations")]
+    pub allow_multi_delegations: bool,
 }
 
 #[serde_as]
@@ -46,6 +52,7 @@ pub async fn get_registrations(
             &[
                 &(params.max_slot.map(|v| v as i64)),
                 &params.stake_credential.as_ref().map(|v| v.as_slice()),
+                &params.allow_multi_delegations,
             ],
         )
         .await;
@@ -57,6 +64,10 @@ pub async fn get_registrations(
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(()).into_response());
         }
     };
+
+    if rows.is_empty() {
+        return (StatusCode::NOT_FOUND, Json(()).into_response());
+    }
 
     let mut registrations = Vec::new();
 

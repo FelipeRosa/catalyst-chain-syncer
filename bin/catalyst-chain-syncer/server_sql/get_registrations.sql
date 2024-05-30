@@ -33,3 +33,4 @@ LEFT JOIN total_voting_powers tvp
 ON tvp.stake_credential = cr.stake_credential
 WHERE
     ($2::BYTEA IS NULL OR cr.stake_credential = $2) -- STAKE CREDENTIAL FILTER
+AND ($3::BOOLEAN OR (NOT $3::BOOLEAN AND ARRAY_LENGTH(cr.voting_key, 1) = 1)) -- MULTIPLE DELEGATIONS FILTER
