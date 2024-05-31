@@ -290,7 +290,6 @@ dependencies = [
  "anyhow",
  "chrono",
  "cryptoxide",
- "hex",
  "lazy_static",
  "minicbor 0.24.0",
  "pallas-addresses",

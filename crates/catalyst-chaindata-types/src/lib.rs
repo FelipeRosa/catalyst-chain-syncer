@@ -6,14 +6,8 @@ use chrono::{DateTime, Utc};
 use cryptoxide::digest::Digest as _;
 use minicbor::Decode;
 use pallas_primitives::conway::Metadatum;
-use pallas_traverse::{
-    wellknown::GenesisValues, MultiEraAsset, MultiEraBlock, MultiEraMeta, MultiEraPolicyAssets,
-    MultiEraTx,
-};
-use serde::Serialize;
+use pallas_traverse::{wellknown::GenesisValues, MultiEraBlock, MultiEraMeta, MultiEraTx};
 use tracing::warn;
-
-use crate::serde_size::serde_size;
 
 lazy_static::lazy_static! {
     static ref MAINNET_GENESIS_VALUES: GenesisValues = GenesisValues::mainnet();
@@ -289,8 +283,6 @@ pub struct CardanoTxo {
     pub transaction_hash: [u8; 32],
     pub index: u32,
     pub value: u64,
-    pub assets: serde_json::Value,
-    pub assets_size_estimate: usize,
     pub stake_credential: Option<[u8; 28]>,
 }
 
@@ -315,16 +307,10 @@ impl CardanoTxo {
                     pallas_addresses::Address::Stake(stake_address) => Some(stake_address),
                 };
 
-                let parsed_assets = parse_policy_assets(&tx_output.non_ada_assets());
-                let assets_size_estimate = serde_size(&parsed_assets).ok()?;
-                let assets = serde_json::to_value(&parsed_assets).ok()?;
-
                 Some(Self {
                     transaction_hash: *tx.hash(),
                     index,
                     value: tx_output.lovelace_amount(),
-                    assets,
-                    assets_size_estimate,
                     stake_credential: stake_credential.map(|a| **a.payload().as_hash()),
                 })
             })
@@ -354,51 +340,6 @@ impl CardanoSpentTxo {
 
         data
     }
-}
-
-#[derive(Debug, Serialize)]
-struct Asset {
-    pub policy_id: String,
-    pub name: String,
-    pub amount: u64,
-}
-
-#[derive(Debug, Serialize)]
-struct PolicyAsset {
-    pub policy_hash: String,
-    pub assets: Vec<Asset>,
-}
-
-fn parse_policy_assets(assets: &[MultiEraPolicyAssets<'_>]) -> Vec<PolicyAsset> {
-    assets
-        .iter()
-        .map(|asset| PolicyAsset {
-            policy_hash: asset.policy().to_string(),
-            assets: parse_child_assets(&asset.assets()),
-        })
-        .collect()
-}
-
-fn parse_child_assets(assets: &[MultiEraAsset]) -> Vec<Asset> {
-    assets
-        .iter()
-        .filter_map(|asset| match asset {
-            MultiEraAsset::AlonzoCompatibleOutput(id, name, amount) => Some(Asset {
-                policy_id: id.to_string(),
-                name: name.to_string(),
-                amount: *amount,
-            }),
-            MultiEraAsset::AlonzoCompatibleMint(id, name, amount) => {
-                let amount = u64::try_from(*amount).ok()?;
-                Some(Asset {
-                    policy_id: id.to_string(),
-                    name: name.to_string(),
-                    amount,
-                })
-            }
-            _ => None,
-        })
-        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

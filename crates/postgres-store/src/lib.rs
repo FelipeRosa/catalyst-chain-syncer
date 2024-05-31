@@ -243,20 +243,13 @@ async fn copy_txos(
     data: &[CardanoTxo],
 ) -> anyhow::Result<()> {
     let sink = tx
-            .copy_in("COPY cardano_txo (transaction_hash, index, value, assets, stake_credential) FROM STDIN BINARY")
-            .await
-            .expect("COPY");
+        .copy_in(
+            "COPY cardano_txo (transaction_hash, index, value, stake_credential) FROM STDIN BINARY",
+        )
+        .await
+        .expect("COPY");
 
-    let writer = BinaryCopyInWriter::new(
-        sink,
-        &[
-            Type::BYTEA,
-            Type::INT4,
-            Type::INT8,
-            Type::JSONB,
-            Type::BYTEA,
-        ],
-    );
+    let writer = BinaryCopyInWriter::new(sink, &[Type::BYTEA, Type::INT4, Type::INT8, Type::BYTEA]);
     tokio::pin!(writer);
 
     for txo_data in data {
@@ -266,7 +259,6 @@ async fn copy_txos(
                 &txo_data.transaction_hash.as_slice(),
                 &(txo_data.index as i32),
                 &(txo_data.value as i64),
-                &txo_data.assets,
                 &txo_data.stake_credential.as_ref().map(|a| a.as_slice()),
             ])
             .await

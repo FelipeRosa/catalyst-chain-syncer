@@ -27,11 +27,6 @@ impl WriteData {
                 .map(mem::size_of_val)
                 .sum::<usize>()
             + self
-                .transaction_outputs
-                .iter()
-                .map(|txo| mem::size_of_val(txo) + txo.assets_size_estimate)
-                .sum::<usize>()
-            + self
                 .spent_transaction_outputs
                 .iter()
                 .map(mem::size_of_val)

@@ -28,7 +28,6 @@ CREATE TABLE IF NOT EXISTS cardano_txo (
     transaction_hash BYTEA NOT NULL,
     index            INTEGER NOT NULL,
     value            BIGINT NOT NULL,
-    assets           JSONB,
     stake_credential BYTEA
 );
 
