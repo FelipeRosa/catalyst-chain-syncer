@@ -277,21 +277,17 @@ async fn process_block_bytes(
             catalyst_registrations_data.push(reg);
         }
 
-        let transaction_outputs_data = match CardanoTxo::from_transactions(&txs) {
-            Ok(data) => data,
-            Err(e) => {
-                warn!(error = ?e, "Failed to parse TXOs");
-                continue;
-            }
-        };
+        let mut transaction_outputs_data = Vec::new();
+        for tx in &txs {
+            let data = CardanoTxo::from_transaction(tx);
+            transaction_outputs_data.extend(data);
+        }
 
-        let spent_transaction_outputs_data = match CardanoSpentTxo::from_transactions(&txs) {
-            Ok(data) => data,
-            Err(e) => {
-                warn!(error = ?e,"Failed to parse spent TXOs");
-                continue;
-            }
-        };
+        let mut spent_transaction_outputs_data = Vec::new();
+        for tx in &txs {
+            let data = CardanoSpentTxo::from_transaction(tx);
+            spent_transaction_outputs_data.extend(data);
+        }
 
         let write_data = WriteData {
             block: block_data,

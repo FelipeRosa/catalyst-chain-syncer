@@ -20,6 +20,7 @@ postgres-store = { path = "crates/postgres-store" }
 
 anyhow = "1.0.83"
 chrono = "0.4.38"
+hex = "0.4.3"
 lazy_static = "1.4.0"
 pallas-addresses = "0.25.0"
 pallas-codec = "0.25.0"

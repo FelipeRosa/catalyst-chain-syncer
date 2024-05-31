@@ -11,6 +11,7 @@ use pallas_traverse::{
     MultiEraTx,
 };
 use serde::Serialize;
+use tracing::warn;
 
 use crate::serde_size::serde_size;
 
@@ -294,36 +295,42 @@ pub struct CardanoTxo {
 }
 
 impl CardanoTxo {
-    pub fn from_transactions(txs: &[MultiEraTx]) -> anyhow::Result<Vec<Self>> {
-        let data = txs
-            .iter()
-            .flat_map(|tx| {
-                tx.outputs().into_iter().zip(0..).map(|(tx_output, index)| {
-                    let address = tx_output.address()?;
+    pub fn from_transaction(tx: &MultiEraTx) -> Vec<Self> {
+        let data = tx
+            .outputs()
+            .into_iter()
+            .zip(0..)
+            .filter_map(|(tx_output, index)| {
+                let address = match tx_output.address() {
+                    Ok(addr) => addr,
+                    Err(e) => {
+                        warn!(error = ?e, "Failed to parse TXO");
+                        return None;
+                    }
+                };
 
-                    let stake_credential = match address {
-                        pallas_addresses::Address::Byron(_) => None,
-                        pallas_addresses::Address::Shelley(address) => address.try_into().ok(),
-                        pallas_addresses::Address::Stake(stake_address) => Some(stake_address),
-                    };
+                let stake_credential = match address {
+                    pallas_addresses::Address::Byron(_) => None,
+                    pallas_addresses::Address::Shelley(address) => address.try_into().ok(),
+                    pallas_addresses::Address::Stake(stake_address) => Some(stake_address),
+                };
 
-                    let parsed_assets = parse_policy_assets(&tx_output.non_ada_assets());
-                    let assets_size_estimate = serde_size(&parsed_assets)?;
-                    let assets = serde_json::to_value(&parsed_assets)?;
+                let parsed_assets = parse_policy_assets(&tx_output.non_ada_assets());
+                let assets_size_estimate = serde_size(&parsed_assets).ok()?;
+                let assets = serde_json::to_value(&parsed_assets).ok()?;
 
-                    Ok(Self {
-                        transaction_hash: *tx.hash(),
-                        index,
-                        value: tx_output.lovelace_amount(),
-                        assets,
-                        assets_size_estimate,
-                        stake_credential: stake_credential.map(|a| **a.payload().as_hash()),
-                    })
+                Some(Self {
+                    transaction_hash: *tx.hash(),
+                    index,
+                    value: tx_output.lovelace_amount(),
+                    assets,
+                    assets_size_estimate,
+                    stake_credential: stake_credential.map(|a| **a.payload().as_hash()),
                 })
             })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+            .collect::<Vec<_>>();
 
-        Ok(data)
+        data
     }
 }
 
@@ -334,19 +341,18 @@ pub struct CardanoSpentTxo {
 }
 
 impl CardanoSpentTxo {
-    pub fn from_transactions(txs: &[MultiEraTx]) -> anyhow::Result<Vec<Self>> {
-        let data = txs
-            .iter()
-            .flat_map(|tx| {
-                tx.inputs().into_iter().map(|tx_input| Self {
-                    from_transaction_hash: **tx_input.output_ref().hash(),
-                    index: tx_input.output_ref().index() as u32,
-                    to_transaction_hash: *tx.hash(),
-                })
+    pub fn from_transaction(tx: &MultiEraTx) -> Vec<Self> {
+        let data = tx
+            .inputs()
+            .into_iter()
+            .map(|tx_input| Self {
+                from_transaction_hash: **tx_input.output_ref().hash(),
+                index: tx_input.output_ref().index() as u32,
+                to_transaction_hash: *tx.hash(),
             })
             .collect();
 
-        Ok(data)
+        data
     }
 }
 
