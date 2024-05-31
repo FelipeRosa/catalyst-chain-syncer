@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "catalyst-chaindata-syncer-checks"
+version = "0.1.0"
+description = ""
+authors = ["Felipe Rosa <felipe.sgrosa@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+asyncio = "^3.4.3"
+aiohttp = "^3.9.5"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
