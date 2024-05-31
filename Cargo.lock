@@ -262,6 +262,7 @@ dependencies = [
  "catalyst-chaindata-types",
  "catalyst-chaindata-writer",
  "clap",
+ "hex",
  "memory-stats",
  "pallas-traverse",
  "parse-size",

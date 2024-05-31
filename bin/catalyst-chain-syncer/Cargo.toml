@@ -13,6 +13,7 @@ postgres-store = { workspace = true }
 anyhow = { workspace = true }
 axum = "0.7.5"
 clap = { version = "4.5.4", default-features = false, features = ["derive", "help", "usage", "std"] }
+hex = "0.4.3"
 memory-stats = "1.1.0"
 pallas-traverse = { workspace = true }
 parse-size = "1.0.0"

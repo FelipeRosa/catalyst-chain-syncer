@@ -19,12 +19,12 @@ lazy_static::lazy_static! {
     static ref PREPROD_GENESIS_VALUES: GenesisValues = GenesisValues::preprod();
 }
 
-const CATALYST_REGISTRATION_METADATA_TAG: u64 = 61284;
-const CATALYST_REGISTRATION_WITNESS_TAG: u64 = 61285;
+const CATALYST_REGISTRATION_METADATA_KEY: u64 = 61284;
+const CATALYST_REGISTRATION_WITNESS_KEY: u64 = 61285;
 
 pub enum CatalystRegistrationVotingKey {
-    Legacy([u8; 32]),
-    Delegations(Vec<([u8; 32], u32)>),
+    Legacy([u8; cryptoxide::ed25519::PUBLIC_KEY_LENGTH]),
+    Delegations(Vec<([u8; cryptoxide::ed25519::PUBLIC_KEY_LENGTH], u32)>),
 }
 
 impl<'b, C> Decode<'b, C> for CatalystRegistrationVotingKey {
@@ -151,7 +151,7 @@ impl CatalystRegistration {
 
                 for (k, v) in pairs.iter() {
                     match *k {
-                        CATALYST_REGISTRATION_METADATA_TAG => {
+                        CATALYST_REGISTRATION_METADATA_KEY => {
                             let raw = pallas_codec::minicbor::to_vec(
                                 CatalystRegistrationMetadatumWithKey(v),
                             )
@@ -159,7 +159,7 @@ impl CatalystRegistration {
 
                             opt_reg = Some((Self::parse_metadatum(tx, v)?, raw));
                         }
-                        CATALYST_REGISTRATION_WITNESS_TAG => {
+                        CATALYST_REGISTRATION_WITNESS_KEY => {
                             opt_wit = Some(CatalystRegistrationWitness::parse_metadatum(v)?);
                         }
                         _ => {}

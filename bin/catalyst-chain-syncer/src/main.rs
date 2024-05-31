@@ -20,7 +20,7 @@ use catalyst_chaindata_writer::{ChainDataWriter, ChainDataWriterHandle, WriteDat
 use clap::Parser;
 use pallas_traverse::MultiEraBlock;
 use tokio::sync::{mpsc, OwnedSemaphorePermit};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 fn parse_byte_size(s: &str) -> Result<u64, String> {
     parse_size::parse_size(s).map_err(|e| e.to_string())
@@ -243,37 +243,54 @@ async fn process_block_bytes(
 
         let block = MultiEraBlock::decode(&block_bytes).expect("Decode");
 
-        let Ok(block_data) = CardanoBlock::from_block(&block, network) else {
-            warn!("Failed to parse block");
-            continue;
+        let block_data = match CardanoBlock::from_block(&block, network) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!(error = ?e, "Failed to parse block");
+                continue;
+            }
         };
 
-        let Ok(transaction_data) = CardanoTransaction::many_from_block(&block, network) else {
-            warn!("Failed to parse transactions");
-            continue;
+        let transaction_data = match CardanoTransaction::many_from_block(&block, network) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!(error = ?e, "Failed to parse transactions");
+                continue;
+            }
         };
 
         let txs = block.txs();
 
         let mut catalyst_registrations_data = Vec::new();
         for tx in &txs {
-            let Ok(Some(reg)) =
-                catalyst_chaindata_types::CatalystRegistration::from_transaction(tx, network)
-            else {
-                continue;
+            let reg = match catalyst_chaindata_types::CatalystRegistration::from_transaction(
+                tx, network,
+            ) {
+                Ok(Some(reg)) => reg,
+                Ok(None) => continue,
+                Err(e) => {
+                    debug!(error = ?e, tx_hash = hex::encode(tx.hash()), "Failed to parse Catalyst registration");
+                    continue;
+                }
             };
 
             catalyst_registrations_data.push(reg);
         }
 
-        let Ok(transaction_outputs_data) = CardanoTxo::from_transactions(&txs) else {
-            warn!("Failed to parse TXOs");
-            continue;
+        let transaction_outputs_data = match CardanoTxo::from_transactions(&txs) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!(error = ?e, "Failed to parse TXOs");
+                continue;
+            }
         };
 
-        let Ok(spent_transaction_outputs_data) = CardanoSpentTxo::from_transactions(&txs) else {
-            warn!("Failed to parse spent TXOs");
-            continue;
+        let spent_transaction_outputs_data = match CardanoSpentTxo::from_transactions(&txs) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!(error = ?e,"Failed to parse spent TXOs");
+                continue;
+            }
         };
 
         let write_data = WriteData {
